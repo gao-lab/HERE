@@ -1,0 +1,1 @@
+../step01__get_3UTR_sequences_from_maf_blocks/convert_maf_to_human_fasta.sh

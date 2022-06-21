@@ -1,0 +1,90 @@
+<html>
+    <head>
+        <title>Two Sample Logos</title>
+        <link rel="stylesheet" href="tsl.css" type="text/css">
+        <link rel="shortcut icon" href="images/favicon.ico">
+        <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+    </head>
+
+    <body>
+        <table width="100%" cellpadding="0" cellspacing="6" border="0" align="center">
+        <tr>
+        <td align="left" valing="bottom"><img src="images/tsl.gif" width="206" height="60" border="0" alt="Two Sample Logos" hspace="0" vspace="6"></td>
+        <td align="right" valign="bottom">
+Home |
+<a href="../cgi-bin/tsl/tsl.cgi">Create TSL</a> | 
+<a href="examples.html">Examples</a> |
+<a href="help.html">Help</a></td>
+        </tr>
+        <tr>
+        <td colspan="2"><br>
+
+<p>
+Two Sample Logo is a web-based application that calculates and visualizes differences between two sets of aligned samples of amino acids or nucleotides. Statistical significance is calculated for each residue at each position in the aligned groups of sequences, where the null hypothesis is that the residue is generated according to the same distribution in both positive and negative samples. Two Sample Logos can be used to determine statistically significant residues around various active sites, protein modification sites, or to find differences between two groups of sequences that share the same sequence motif.
+</p> 
+
+<p>
+The software supports two types of graphical representation: (i) statistically significant residues are plotted using the same size for each residue symbol, (ii) statistically significant symbols are plotted using the size of the symbol that is proportional to the difference between the two samples. Residues are separated in two groups: (i) enriched in the positive sample, and (ii) depleted in the positive sample. In all types of representations, symbols can be plotted using various color schemes and shared residues can be added to the plot in order to visualize the motif itself. The p-value is calculated using the binomial distribution (more accurate, but slower option) or the t-test (less accurate, but significantly faster).
+</p>
+
+
+
+<h4>Acknowledgements</h4>
+<p>
+Two Sample Logo software was developed by <a href="http://www.cs.ucr.edu/~vladimir">Vladimir
+Vacic</a> (University of California, Riverside), Lilia M. Iakoucheva (The Rockefeller 
+University, New York), and <a href="http://www.informatics.indiana.edu/predrag">Predrag 
+Radivojac</a> (Indiana University, Bloomington).
+</p>
+
+<p>
+In citing the Two Sample Logo software, please refer to: 
+
+<blockquote>
+Vacic V., Iakoucheva L.M., and Radivojac P. (2006) "Two Sample Logo: A Graphical Representation of the Differences between Two Sets of Sequence Alignments." <u>Bioinformatics</u>, 22(12): 1536-1537. <a href="http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=pubmed&dopt=Abstract&list_uids=16632492&query_hl=1&itool=pubmed_docsum"><img src="images/pubmed.gif" width="47" height="15" border="0"></a>
+</blockquote>
+</p>
+
+<p>
+Two Sample Logo was created using the Ruby programming language, based
+on the <a href="http://weblogo.berkeley.edu">WebLogo</a> code, developed
+by Gavin E. Crooks, Gary Hon, John-Marc Chandonia and Steven E. Brenner,
+(Crooks et al., 2004) from the Computational Genomics Research Group,
+Department of Plant and Microbial Biology, University of California,
+Berkeley. WebLogo was in turn based on <a href="http://www.lecb.ncifcrf.gov/~toms/sequencelogo.html">sequence logos</a> developed by Tom Schneider and Mike Stephens (Schneideir and Stephens, 1990). Routines for 
+calculating p-values were written in C and use numerical approximation 
+functions from the Stephen L. Moshier's <a href="http://www.netlib.org/cephes">Cephes Math Library</a>. 
+Web page design for Two Sample Logo was inspired by the WebLogo web
+interface.
+</p>
+
+<p>
+Please direct all comments and suggestions to <a href="mailto:predrag%40indiana.edu">predrag<!---->@indiana.edu</a>.
+</p>
+
+
+
+<h4>Source Code</h4>
+<p>
+Two Sample Logo source code is available for <a href="tsl_v1.1.tar.gz">download</a>. 
+The <a href="README.txt">README</a> file contains installation instructions, and
+licensing information can be found in the <a href="LICENSE.txt">LICENSE</a> file.
+</p>
+
+
+
+<h4>References</h4>
+
+<ul>
+<li>Crooks G.E., Hon G., Chandonia J.M., and Brenner S.E. (2004) "WebLogo: A sequence logo generator", <u>Genome Research</u>, 14:1188-1190. <a href="http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=pubmed&dopt=Abstract&list_uids=15173120&query_hl=5"><img src="images/pubmed.gif" width="47" height="15" border="0"></a></li>
+
+<li>Schneider T.D., Stephens R.M. (1990) "Sequence Logos: A New Way to Display Consensus Sequences" <u>Nucleic Acids Res.</u>, 18:6097-6100. <a href="http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=pubmed&dopt=Abstract&list_uids=2172928&query_hl=7"><img src="images/pubmed.gif" width="47" height="15" border="0"></a></li>
+</ul>
+
+        <hr noshade size="3">
+
+        </td>
+        </tr>
+        </table>
+    </body>
+</html>

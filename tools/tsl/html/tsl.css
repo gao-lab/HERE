@@ -1,0 +1,100 @@
+BODY, TD
+{
+    color            : #555555;
+    font-family      : verdana, arial, sans-serif;
+    font-size        : 12;
+    margin-left      : 0px;
+    margin-right     : 0px;
+    margin-top       : 0px;
+}
+
+h1, h2, h3, h4, h5, h6
+{
+    padding-top:    0.1em;
+    padding-bottom: 0.1em;
+    padding-left:   0.5em;
+    font-family :   verdana, arial, sans-serif;
+}
+
+h1
+{
+    border-bottom: solid;
+    border-color: gray;
+}
+
+h2 {
+    font-size: 18;
+    color: black;
+    border-bottom: solid;
+    border-color: grey;
+}
+
+h3 {
+    font-size: 14;
+    color: black;
+    border-bottom: solid thin;
+    border-color: grey;
+}
+
+h4
+{
+    border-top: solid thin;
+    border-bottom: solid thin;
+    border-color: gray;
+    background-color: BBBBBB;
+    padding-top: 0.2em;
+    padding-bottom: 0.2em;
+    font-size: 12;
+    text-align:     center;
+}
+
+h5
+{
+    border-top: solid thin;
+    border-bottom: solid thin;
+    border-color: green;
+    background-color: 99FF00;
+    padding-top: 0.2em;
+    padding-bottom: 0.2em;
+    font-size: 12;
+    text-align:     center;
+}
+
+
+h6
+{
+    border-top: solid thin;
+    border-bottom: solid thin;
+    border-color: red;
+    background-color: FF8855;
+    padding-top: 0.2em;
+    padding-bottom: 0.2em;
+    font-size: 12;
+    text-align:     center;
+}
+
+FORM
+{
+   margin           : 0px 0px 0px 0px;
+}
+
+INPUT, SELECT, FILE
+{
+   color            : #000000;
+   font-family      : verdana, arial, sans-serif;
+   font-size        : 12;
+}
+
+TEXTAREA
+{
+   color            : #000000;
+   font-family      : courier;
+   font-size        : 12;
+}
+
+
+a:link, a:visited, a:active, a:hover
+{
+    color: red;
+    text-decoration: underlined;
+}

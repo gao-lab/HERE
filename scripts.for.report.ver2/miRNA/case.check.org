@@ -1,0 +1,117 @@
+#+begin_src text
+       transcript.id miRNA.family.ID MSA.start MSA.end UTR.start.x UTR.end.x
+1: ENST00000341290.6  miR-103-3p/107       137     142         137       142
+   from.TargetScan UTR.start.y UTR.end.y from.miRanda
+1:            TRUE         126       143         TRUE
+#+end_src
+
+#+begin_src text
+  >ENST00000341290.6__3UTR
+
+
+		     137  142
+     126             |    |143
+  5' GCGT-GTCCTG----GTGCTGCT 3'
+      |:| |:||||    :|||||||
+  3' aGUAUCGGGACAUGUUACGACGA 5'
+  3'                UACGACG  5'
+		     ,******
+
+
+8mer-1a:
+ENST00000611208.4	miR-7-5p	9606	17	24	17	24	4338	8mer-1a	x	8mer-1a	9606 10090		0
+
+__000000000111111111122222222223333333333
+__123456789012345678901234567890123456789
+		  [      )
+		  17     24 
+  TGAAGCATCTCCTGAAGTCTTCCA
+                  |||||||.
+		  CAGAAGG.
+
+8mer-1a (not surrounded by A at both sides):
+ENST00000397026.7	miR-34-5p/449-5p	9606	19	26	19	26	19920	8mer-1a	x	8mer-1a	9606		0
+__000000000111111111122222222223333333333
+__123456789012345678901234567890123456789
+                15  19     26
+  TAGCAGAGAGTCCTGAGCCACTGCCAACA
+                    |||||||.
+                    GUGACGG.  
+
+7mer-1a (not surrounded by A at both sides):
+ENST00000418658.6	miR-205-5p	9606	15	21	15	21	1012	7mer-1a	x	7mer-1a	9606 10090		0
+__000000000111111111122222222223333333333
+__123456789012345678901234567890123456789
+                15    21
+  TGACAAAAGTTATCTGAAGGA
+                |||||| 
+               UACUUCC
+
+7mer-1a (case 2, not surrounded by A at both sides):
+ENST00000467425.5	miR-9-5p	9606	19	25	19	25	4903	7mer-1a	x	7mer-1a	9606		0
+__000000000111111111122222222223333333333
+__123456789012345678901234567890123456789
+                    19    25
+  TAGCTTTTGACTGCTTTCCCAAAGATTTTT
+                    |||||| 
+                   UGGUUUC
+
+7mer-m8
+
+ENST00000456506.2	miR-124-3p.1	9606	16	22	16	22	5517	7mer-m8	x	7mer-m8	9606		0
+
+_____000000000111111111122222222223333333333
+_____123456789012345678901234567890123456789
+                    16    22
+  5' TGACAGGCACAGAGGGTGCCTTTTACCGCCGC 3' ENST00000456506.2
+                    |||||||
+  3'                CACGGAA           5' miR-124-3p.1
+                    8     2
+
+  all coordinates are one-based, left-closed, right-closed (miRanda 3UTR) / right-open (miRanda Query and TargetScan), on the orientation of the 3'-UTR
+  all 3'-UTR sequences are displayed in the transcript form from 5' to 3', regardless of their genomic strandness
+  for TargetScan start with Site type being 8mer-1a and ?, the start does not include the 'A'
+
+  Criteria: 
+    for a 4-tuple of (miRNA family, 3'-UTR, a TargetScan MBS, a miRanda MBS), 
+    the two MBSs match if and only if 
+    "the 3'-UTR [start, end] of TargetScan MBS" is within a subset region of the 3'-UTR aligned region of miRanda MBS that satisfies the definition of "Site type" of the TargetScan MBS
+
+
+
+
+
+  miR-103-3p/107	GCAGCAU	9606	hsa-miR-103a-3p	AGCAGCAUUGUACAGGGCUAUGA	2	MIMAT0000101
+  rev: UACGACG
+
+  (base) [gaog_pkuhpc@login13 32]$ cat gencode.3utr.chr1.TargetScan.output |grep ENST00000341290.6|grep  "miR-103-3p/107"
+  ENST00000341290.6	miR-103-3p/107	9606	137	142	137	142	713	6mer	x	6mer	9606		0
+
+
+
+  CCCTCCGACTCACCTGAGGATCCAGCCAGTGACCACGGCCACTCCCCACGCCTGGGAGGGAGGTGCTAAAGTCtgggtgggtggagggcaggcaggtggctgggtaggagggtggCCAGATTCACAGATGAGAACACAGGGCATTCGGTTAATTTCAGAcaggcaatagtggggaggtcattttactaagaagttgttgtttatctgaaatcaaatgcaaccgcaccctgcgtttctTCTGGGGTGCAGGGGGAGCTGAGTGGCAGGACAGGACTTGGACCTCGGAGGGGTCTGAGCAGCAAGACACTCCGGCTGGAGCTCTGGGCAGAGGCAGGGGAGAGGACACAGGGTGGCCTCAAAGAGGGGATGGGCAGCCTCCTCACAGGTGGGCTGGGCTGGCAAGGGCTCCAAGGCCCATCACTCTTGATCCTCAAAGGACTGTGGCCAAGGCCTCTGCGGGCTCTGGCCTGAGACAGCGAAGGCTCTGCCTGCCCCTCCCCAGTGCAGCAGCCCCTGCAGGGTGGGGGTCTGTGGCAGAGCCGCGAGCCCCTCCCCGGGAGCCCTGGGTGCAGGTGCAGAGGGAGAATTCGGTGGCCTCAGATGGAGGGCTGGGCTCCTGGGGTTGTCCCGGGGGCTCCTGTGGGGCAGCTGGGGACCCACAGCCAAGAGGAGTCAGAGATGAGGTGGGAAGGTCGGTGAGGGGCCCGAGGTGGCAGAGGAAGGGGGCTGCCTGGCTGGGTGCTGGGTGGGGGTCCTCAAGACTGTGGGAGACCCTGGCTGCTGAGCAGAGAACACATGGATGCAGCACCAATAAAATtctatcttttc
+#+end_src
+
+
+#+begin_src text
+926147	Read Sequence:ENST00000341290.6__3UTR (971 nt)
+926148	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+926149	Performing Scan: miR-103-3p/107 vs ENST00000341290.6__3UTR
+926150	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+       
+926151	   Forward:	Score: 148.000000  Q:2 to 24  R:126 to 143 Align Len (22) (63.64%) (77.27%)
+       
+926152	   Query:    3' aGUAUCGGGACAUGUUACGACGA 5'
+926153	                 |:| |:||||    :|||||||
+926154	   Ref:      5' gCGT-GTCCTG----GTGCTGCT 3'
+       
+926155	   Energy:  -23.879999 kCal/Mol
+       
+926156	Scores for this hit:
+926157	>miR-103-3p/107	ENST00000341290.6__3UTR	148.00	-23.88	0.00	2 24	126 143	22	63.64%	77.27%
+       
+926158	Score for this Scan:
+926159	Seq1,Seq2,Tot Score,Tot Energy,Max Score,Max Energy,Strand,Len1,Len2,Positions
+926160	>>miR-103-3p/107	ENST00000341290.6__3UTR	148.00	-23.88	148.00	-23.88	95743	23	971	 125
+926161	Complete
+#+end_src

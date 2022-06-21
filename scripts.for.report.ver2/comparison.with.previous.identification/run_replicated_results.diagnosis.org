@@ -1,0 +1,24 @@
+* GSE44183/GSM1160125, variants detected by Qiu2016 but not detected by ours after applying all Qiu2016 filters (except for the problematic Step1.pvalue.keep filter)
+
+| Index | Chr.hg38 |  hg38.pos | Reason not detected by us (not all reasons are listed for simplicity)                                                                               |
+|-------+----------+-----------+-----------------------------------------------------------------------------------------------------------------------------------------------------|
+|     1 | chr1     |  55877668 | failed to be called by GATK 3.6.0 UnifiedGenotyper; in addition, A->G on genomic minus strand, but known transcripts are on the genomic plus strand |
+|     2 | chr10    |  11461001 | non-Alu variant (type: nonRep) and observed only in GSM1160125 across all 4-stage samples                                                           |
+|     3 | chr10    |  30313368 | multiple alternative alleles at the same location in this sample, discarded at ~S51_3~                                                              |
+|     4 | chr10    |  57991785 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|     5 | chr11    |   4574757 | overlapping with variants from NCBI ALFA                                                                                                            |
+|     6 | chr11    |   4574911 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|     7 | chr11    |  97259815 | A->G on genomic plus strand, but known transcripts are on the genomic minus strand                                                                  |
+|     8 | chr15    |  50561378 | multiple alternative alleles at the same location in this sample, discarded at ~S51_3~                                                              |
+|     9 | chr17    |  59860180 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|    10 | chr18    |  38538966 | overlapping with variants from NCBI ALFA                                                                                                            |
+|    11 | chr2     |  77517790 | multiple alternative alleles at the same location in this sample, discarded at ~S51_3~                                                              |
+|    12 | chr2     | 237097898 | in this hg38 simple repeat (RepeatMasker ver.): ~chr2 237097865 237097900 (AATATAC)n 14 +~                                                          |
+|    13 | chr2     | 238098787 | A->G on genomic minus strand, but known transcripts are on the genomic plus strand                                                                  |
+|    14 | chr20    |  46493575 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|    15 | chr20    |  46493777 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|    16 | chr5     | 158698788 | overlapping with variants from gnomAD v3.0                                                                                                          |
+|    17 | chr8     |  13364676 | overlapping with variants from NCBI ALFA                                                                                                            |
+
+
+* GSE44183/GSM1160125, variants detected by ours but not detected by Qiu2016 after applying all Qiu2016 filters (except for the problematic Step1.pvalue.keep filter)
