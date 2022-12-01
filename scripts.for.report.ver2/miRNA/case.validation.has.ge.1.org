@@ -1,0 +1,240 @@
+Single site
+
+#+begin_src text
+> edited.intersection.of.TargetScan.and.miRanda.compared.with.original.dt[transcript.id=='ENST00000235932.8' & edit.POS==205769641]
+       transcript.id  edit.POS edit.rel.POS.wrt.3UTR index miRNA.family.ID
+1: ENST00000235932.8 205769641                   704    20      miR-138-5p
+2: ENST00000235932.8 205769641                   704    20    miR-140-3p.1
+3: ENST00000235932.8 205769641                   704    20      miR-150-5p
+4: ENST00000235932.8 205769641                   704    20      miR-193-3p
+5: ENST00000235932.8 205769641                   704    20      miR-212-5p
+6: ENST00000235932.8 205769641                   704    20         miR-217
+   miRNA.family.site.count.from.original from.original
+1:                                     0         FALSE
+2:                                     1          TRUE
+3:                                     1          TRUE
+4:                                     1          TRUE
+5:                                     1          TRUE
+6:                                     1          TRUE
+   miRNA.family.site.count.from.edited from.edited
+1:                                   1        TRUE
+2:                                   1        TRUE
+3:                                   1        TRUE
+4:                                   1        TRUE
+5:                                   1        TRUE
+6:                                   1        TRUE
+   the.miRNA.family.has.ge.1.site.overlapping.the.edit
+1:                                                TRUE
+2:                                               FALSE
+3:                                               FALSE
+4:                                               FALSE
+5:                                               FALSE
+6:                                               FALSE
+
+
+> edited.intersection.of.TargetScan.and.miRanda.at.miRNA.family.level.dt[transcript.id=='ENST00000235932.8' & edit.POS==205769641]
+       transcript.id  edit.POS edit.rel.POS.wrt.3UTR miRNA.family.ID
+1: ENST00000235932.8 205769641                   704      miR-138-5p
+2: ENST00000235932.8 205769641                   704    miR-140-3p.1
+3: ENST00000235932.8 205769641                   704      miR-150-5p
+4: ENST00000235932.8 205769641                   704      miR-193-3p
+5: ENST00000235932.8 205769641                   704      miR-212-5p
+6: ENST00000235932.8 205769641                   704         miR-217
+   transcript.3UTR.site.start transcript.3UTR.site.end site.type
+1:                        700                      705      6mer
+2:                        507                      513   7mer-1a
+3:                        804                      810   7mer-1a
+4:                        219                      224      6mer
+5:                        662                      668   7mer-m8
+6:                        837                      842      6mer
+   predicted.by.TargetScan prediction.index.TargetScan predicted.by.miRanda
+1:                    TRUE                      120731                 TRUE
+2:                    TRUE                      120732                 TRUE
+3:                    TRUE                      120736                 TRUE
+4:                    TRUE                      120740                 TRUE
+5:                    TRUE                      120744                 TRUE
+6:                    TRUE                      120745                 TRUE
+   prediction.indices.miRanda all.miRNA.names.from.miRanda.input
+1:                     282066                     hsa-miR-138-5p
+2:                     282074                   hsa-miR-140-3p.1
+3:                     282077                     hsa-miR-150-5p
+4:                     282093                    hsa-miR-193a-3p
+5:                     282108                     hsa-miR-212-5p
+6:                     282113                    hsa-miR-6807-3p
+   all.miRanda.UTR.starts.and.ends the.site.has.ge.1.site.overlapping.the.edit
+1:                         684-706                                        TRUE
+2:                         489-513                                       FALSE
+3:                         789-810                                       FALSE
+4:                         203-225                                       FALSE
+5:                         645-669                                       FALSE
+6:                         822-843                                       FALSE
+
+#+end_src
+
+Multiple sites for a given miRNA family
+#+begin_src text
+
+> edited.intersection.of.TargetScan.and.miRanda.compared.with.original.dt[transcript.id=='ENST00000304760.3' & edit.POS==154482152][miRNA.family.ID %in% c('miR-122-5p', 'miR-140-3p.1')]
+       transcript.id  edit.POS edit.rel.POS.wrt.3UTR index miRNA.family.ID
+1: ENST00000304760.3 154482152                  2000   228      miR-122-5p
+2: ENST00000304760.3 154482152                  2000   228    miR-140-3p.1
+   miRNA.family.site.count.from.original from.original
+1:                                     2          TRUE
+2:                                     2          TRUE
+   miRNA.family.site.count.from.edited from.edited
+1:                                   2        TRUE
+2:                                   3        TRUE
+   the.miRNA.family.has.ge.1.site.overlapping.the.edit
+1:                                               FALSE
+2:                                                TRUE
+
+
+> edited.intersection.of.TargetScan.and.miRanda.at.miRNA.family.level.dt[transcript.id=='ENST00000304760.3' & edit.POS==154482152][miRNA.family.ID %in% c('miR-122-5p', 'miR-140-3p.1')]
+       transcript.id  edit.POS edit.rel.POS.wrt.3UTR miRNA.family.ID
+1: ENST00000304760.3 154482152                  2000      miR-122-5p
+2: ENST00000304760.3 154482152                  2000      miR-122-5p
+3: ENST00000304760.3 154482152                  2000    miR-140-3p.1
+4: ENST00000304760.3 154482152                  2000    miR-140-3p.1
+5: ENST00000304760.3 154482152                  2000    miR-140-3p.1
+   transcript.3UTR.site.start transcript.3UTR.site.end site.type
+1:                       2085                     2091   7mer-1a
+2:                       2249                     2255   7mer-1a
+3:                        921                      927   7mer-1a
+4:                       1995                     2001   7mer-m8
+5:                       2162                     2168   7mer-m8
+   predicted.by.TargetScan prediction.index.TargetScan predicted.by.miRanda
+1:                    TRUE                      633246                 TRUE
+2:                    TRUE                      633247                 TRUE
+3:                    TRUE                      633278                 TRUE
+4:                    TRUE                      633276                 TRUE
+5:                    TRUE                      633277                 TRUE
+   prediction.indices.miRanda all.miRNA.names.from.miRanda.input
+1:                    1599893                     hsa-miR-122-5p
+2:                    1599892                     hsa-miR-122-5p
+3:                    1599955                   hsa-miR-140-3p.1
+4:                    1599954                   hsa-miR-140-3p.1
+5:                    1599953                   hsa-miR-140-3p.1
+   all.miRanda.UTR.starts.and.ends the.site.has.ge.1.site.overlapping.the.edit
+1:                       2068-2091                                       FALSE
+2:                       2237-2255                                       FALSE
+3:                         902-927                                       FALSE
+4:                       1981-2002                                        TRUE
+5:                       2146-2169                                       FALSE
+
+#+end_src
+
+
+lost miRNA family, and the edit is in the site
+#+begin_src text
+> ..temp.original.hit.count.dt
+   miRNA.family.ID miRNA.family.site.count.from.original from.original
+1:    miR-140-3p.1                                     1          TRUE
+2:      miR-150-5p                                     1          TRUE
+3:      miR-193-3p                                     1          TRUE
+4:      miR-212-5p                                     1          TRUE
+5:         miR-217                                     1          TRUE
+   the.miRNA.family.in.the.original.has.ge.1.site.overlapping.the.edit
+1:                                                               FALSE
+2:                                                               FALSE
+3:                                                               FALSE
+4:                                                                TRUE
+5:                                                               FALSE
+> TEMP.ROW.DT
+       transcript.id  edit.POS edit.rel.POS.wrt.3UTR index
+1: ENST00000235932.8 205769679                   666    25
+>             edited.intersection.of.TargetScan.and.miRanda.at.miRNA.family.level.dt[
++                 (transcript.id == TEMP.ROW.DT[1, transcript.id]) & (edit.POS == TEMP.ROW.DT[1, edit.POS]),
++                 list(
++                     miRNA.family.site.count.from.edited=.N,
++                     from.edited=TRUE,
++                     the.miRNA.family.in.the.edited.has.ge.1.site.overlapping.the.edit=any(the.site.in.the.edited.has.ge.1.site.overlapping.the.edit)),
++                 list(miRNA.family.ID)
++             ][is.na(miRNA.family.ID) == FALSE] -> ..temp.edited.hit.count.dt ## automatically create zero-row table if not in the edited MBS set
++             ##
++ 
+> ..temp.edited.hit.count.dt
+   miRNA.family.ID miRNA.family.site.count.from.edited from.edited
+1:    miR-140-3p.1                                   1        TRUE
+2:      miR-150-5p                                   1        TRUE
+3:      miR-193-3p                                   1        TRUE
+4:         miR-217                                   1        TRUE
+   the.miRNA.family.in.the.edited.has.ge.1.site.overlapping.the.edit
+1:                                                             FALSE
+2:                                                             FALSE
+3:                                                             FALSE
+4:                                                             FALSE
+
+
+
+> ..temp.merged.dt
+   miRNA.family.ID miRNA.family.site.count.from.original from.original
+1:    miR-140-3p.1                                     1          TRUE
+2:      miR-150-5p                                     1          TRUE
+3:      miR-193-3p                                     1          TRUE
+4:      miR-212-5p                                     1          TRUE
+5:         miR-217                                     1          TRUE
+   the.miRNA.family.in.the.original.has.ge.1.site.overlapping.the.edit
+1:                                                               FALSE
+2:                                                               FALSE
+3:                                                               FALSE
+4:                                                                TRUE
+5:                                                               FALSE
+   miRNA.family.site.count.from.edited from.edited
+1:                                   1        TRUE
+2:                                   1        TRUE
+3:                                   1        TRUE
+4:                                  NA          NA
+5:                                   1        TRUE
+   the.miRNA.family.in.the.edited.has.ge.1.site.overlapping.the.edit
+1:                                                             FALSE
+2:                                                             FALSE
+3:                                                             FALSE
+4:                                                                NA
+5:                                                             FALSE
+
+#+end_src
+
+lost miRNA family, but the edit is not in the site (it is in the miRanda alignment region in the original table)
+#+begin_src text
+> original.miRanda.human.dt[transcript.id=='ENST00000234827.6' & miRNA.family.ID=='miR-150-5p']
+       transcript.id     miRNA.name miRNA.family.ID UTR.start UTR.end
+1: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      3001    3037
+2: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      2633    2654
+3: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      4784    4805
+4: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      1015    1032
+5: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      2490    2513
+6: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      7996    8013
+7: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      8510    8530
+8: ENST00000234827.6 hsa-miR-150-5p      miR-150-5p      6541    6570
+   transcript.3UTR.site.start transcript.3UTR.site.end site.type
+1:                       3030                     3036   7mer-m8
+2:                         NA                       NA      <NA>
+3:                         NA                       NA      <NA>
+4:                         NA                       NA      <NA>
+5:                         NA                       NA      <NA>
+6:                         NA                       NA      <NA>
+7:                         NA                       NA      <NA>
+8:                         NA                       NA      <NA>
+> 
+
+> edited.TargetScan.human.dt[transcript.id=='ENST00000234827.6' & edit.rel.POS.wrt.3UTR==3016 & miRNA.family.ID=='miR-150-5p']
+       transcript.id edit.POS edit.rel.POS.wrt.3UTR miRNA.family.ID MSA.start
+1: ENST00000234827.6 54099486                  3016      miR-150-5p      1317
+2: ENST00000234827.6 54099486                  3016      miR-150-5p      3030
+3: ENST00000234827.6 54099486                  3016      miR-150-5p      3198
+4: ENST00000234827.6 54099486                  3016      miR-150-5p      3525
+5: ENST00000234827.6 54099486                  3016      miR-150-5p      4825
+6: ENST00000234827.6 54099486                  3016      miR-150-5p      5183
+7: ENST00000234827.6 54099486                  3016      miR-150-5p      5609
+8: ENST00000234827.6 54099486                  3016      miR-150-5p      8773
+   MSA.end UTR.start UTR.end Site.type
+1:    1322      1317    1322      6mer
+2:    3036      3030    3036   7mer-m8
+3:    3204      3198    3204   7mer-1a
+4:    3531      3525    3531   7mer-m8
+5:    4831      4825    4831   7mer-m8
+6:    5189      5183    5189   7mer-m8
+7:    5614      5609    5614      6mer
+8:    8778      8773    8778      6mer
+
+#+end_src

@@ -1,0 +1,17 @@
+stage,is.normal,disease,total.sample.count
+2-cell,FALSE,androgenetic,8
+4-cell,FALSE,androgenetic,10
+8-cell,FALSE,androgenetic,23
+morula,FALSE,androgenetic,46
+zygote,FALSE,parthenogenetic,4
+2-cell,FALSE,parthenogenetic,10
+4-cell,FALSE,parthenogenetic,11
+8-cell,FALSE,parthenogenetic,21
+morula,FALSE,parthenogenetic,30
+oocyte.MII,TRUE,biparental,9
+zygote,TRUE,biparental,7
+2-cell,TRUE,biparental,10
+4-cell,TRUE,biparental,21
+8-cell,TRUE,biparental,34
+morula,TRUE,biparental,48
+zygote,FALSE,androgenetic,4

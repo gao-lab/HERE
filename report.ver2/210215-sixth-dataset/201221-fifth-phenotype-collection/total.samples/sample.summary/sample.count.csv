@@ -1,0 +1,36 @@
+stage,normal.type,count.of.samples
+2-cell,normal,27
+2-cell,abnormal,20
+2-cell (3PN)*,normal,1
+cleavage (2- or 4- or 8-cell),normal,2
+4-cell,normal,41
+4-cell,abnormal,21
+4-cell (3PN),normal,2
+8-cell,normal,66
+8-cell,abnormal,46
+CTB,normal,246
+EVT,normal,40
+ICM,normal,59
+MTB,normal,16
+STB,normal,143
+TE,normal,5
+blastocyst (timepoint not specified),abnormal,92
+blastocyst (early),normal,3
+blastocyst (late),normal,33
+blastocyst (middle),normal,3
+epiblast,normal,125
+hESC,normal,162
+hypoblast,normal,25
+morula,normal,73
+morula,abnormal,76
+oocyte (GV),normal,14
+oocyte (MI),normal,2
+oocyte (MII),normal,30
+oocyte (mature),normal,3
+post-implantation embryo (timepoint not specified),normal,3
+pronucleus,normal,5
+trophoblast,normal,640
+zygote,normal,17
+zygote,abnormal,8
+zygote (2PN),abnormal,11
+zygote (2PN),normal,11

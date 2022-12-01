@@ -1,0 +1,337 @@
+#!/usr/bin/ruby -w
+
+# Ruby script for running Two Sample Logo from the command line.
+#
+# Version 1.21
+#
+# Vladimir Vacic, Columbia University, New York
+# Lilia Iakoucheva, University of California, San Diego
+# Predrag Radivojac, Indiana University, Bloomington
+#
+# Feb-1-2011
+
+require_relative "Template.rb"
+require_relative "TSL.rb"
+require_relative "Util.rb"
+
+
+def usage
+    temp =<<END
+
+Usage: tsl -P <pos file> -N <neg file> -K[A|N] -O <out file> [options]
+Creates a two sample logo from the two multiple sequence alignments.
+
+Mandatory arguments:
+  -P <positive sample file>
+  -N <negative sample file>
+  -K <kind of data>          A for amino acid, N for nucleic acid.
+  -O <output file>           Output file name.
+
+Run tsl -h to get a list of all options.
+END
+    puts temp
+end
+
+
+
+def help
+    temp =<<END
+Usage: tsl -P <pos file> -N <neg file> -K[A|N] -O <out file> [options]
+Creates a two sample logo from the two multiple sequence alignments.
+
+Mandatory arguments:
+  -P <positive sample file>
+  -N <negative sample file>
+  -K <kind of data>          A for amino acid, N for nucleic acid.
+  -O <output file>           Output file name.
+
+Optional arguments:
+  -A <box shrink factor>     Shrink factor of characters if option s 
+                             (show box) is toggled. Defaults to 0.5.
+  -C <color scheme>          One of the following:        
+                             amino_bw (Black and white)
+                             amino_weblogo (WebLogo default colors)
+                             amino_colors (Amino colors)
+                             amino_shapley (Shapley colors)
+                             amino_charge (Charge)
+                             amino_hydro (Hydrophobicity)
+                             amino_surface (Surface exposure)
+                             amino_flex (Vihinen's flexibility)
+                             amino_disorder (Disorder propensity)
+                             nucleo_bw (Black and white)
+                             nucleo_weblogo (WebLogo default colors)
+                             nucleo_shapley (Shapley colors)
+                             Defaults to amino_weblogo.
+  -E <sequence end>          
+  -F <format>                Format of output (EPS, GIF, PDF, PNG, TXT). 
+                             Defaults to PNG.
+  -H <logo height>           Height of output logo. Defaults to 5.
+  -I <title>                 Text of title, enclosed in "" if more than one 
+                             word.
+  -M <first index>           Defaults to 1.
+  -R <resolution>            Bitmap resolution. Defaults to 96.
+  -S <sequence start>        Sequence start number. Defaults to 1.
+  -T <statistical test>      "ttest" for t-test, "binomial" for binomial test.
+                             Defaults to "ttest".
+  -U <units>                 Logo dimensions units (cm, inch, pixel, point).
+                             Defaults to cm. 
+  -V <p value>               Alpha, probability of committing Type I error.
+                             Used to filter out symbols which have p-value
+                             greater or equal to alpha. Defaults to 0.05. 
+  -W <logo width>            Width of output logo. Defaults to 8.
+  -X <res units>             Resolution units when bitmap resolution is 
+                             specified (ppi, ppc, ppp). Defaults to ppi.
+
+Optional toggles (no values associated):
+  -a                         Toggle anti-aliasing.
+  -b                         Toggle Bonferroni correction.
+  -f                         Toggle fixed height output characters. 
+  -o                         Toggle outlining of characters.
+  -s                         Toggle show box.
+  -x                         Toggle numbering along the x-axis.
+  -y                         Toggle labels on y-axis.
+
+END
+    puts temp     
+end
+
+
+
+########################################################################
+#
+# Parse command line options and check parameter values.
+#
+########################################################################
+
+opts = Util.getopts('P:N:K:O:A:C:E:F:H:I:M:R:S:T:U:V:W:X:abfosxyh')
+
+if (opts['h'])
+    help
+    exit
+end
+
+# Check positive sample file
+if (nil != opts['P'])
+    if (!File.exists?(opts['P']))
+        puts "Could not open positive sample file #{opts['P']}."
+        usage
+        exit
+    end
+else
+    puts "Positive sample file not specified, terminating."
+    usage
+    exit
+end
+
+# Check negative sample file
+if (nil != opts['N'])
+    if (!File.exists?(opts['N']))
+        puts "Could not open negative input file #{opts['N']}."
+        usage
+        exit
+    end
+else
+    puts "Negative sample file not specified, terminating."
+    usage
+    exit
+end
+
+# Check input kind
+if (nil != opts['K'])
+    if ("A" != opts['K'] && "N" != opts['K'])
+        puts "Input kind must be A or N, but is #{opts['K']}."
+        usage
+        exit
+    end
+else
+    puts "Input kind not specified, terminating."
+    usage
+    exit
+end
+
+# Check output format
+if (nil != opts['F'])
+    if (opts['F'].upcase!="GIF" && opts['F'].upcase!="PNG" && opts['F'].upcase!="EPS" && opts['F'].upcase!="PDF" && opts['F'].upcase!="TXT")
+        puts "Supported output formats are PNG, GIF, EPS, PDF and TXT, found #{opts['F']}."
+        usage
+        exit
+    end
+else
+    opts['F'] = "PNG"
+end
+
+# Check output file name
+if (nil == opts['O'])
+    puts "Output file name not specified, terminating."
+    usage   
+    exit
+end 
+
+# Scaling factor
+if (opts['A'] != nil && (opts['A'].to_f <= 0 || opts['A'].to_f > 1))
+    puts "Option A must be a real between 0 and 1, but is #{opts['A']}."
+    usage
+    exit
+end
+
+#
+if (opts['E'] != nil && (opts['E'].to_f <= 0 || opts['E'].to_f > 1))
+    puts "Option E must be a real between 0 and 1, but is #{opts['E']}."
+    usage
+    exit
+end
+
+# Logo height
+if (opts['H'] != nil && opts['H'].to_f <= 0)
+    put "Option H must be a positive real, but is #{opts['H']}"
+    usage
+    exit
+end
+
+# Logo width
+if (opts['W'] != nil && opts['W'].to_f <= 0)
+    puts "Option W must be a positive real, but is #{opts['W']}"
+    usage
+    exit
+end
+
+# Logo start
+if (opts['S'] != nil && opts['S'].to_i <= 0)
+    puts "\nOption S must be a positive integer, but is #{opts['S']}\n"
+    usage
+    exit
+end
+
+# Logo end
+if (opts['E'] != nil && opts['E'].to_i <= 0)
+    puts "\nOption E must be a positive integer, but is #{opts['E']}\n"
+    usage
+    exit
+end
+
+# Label of the first logo symbol
+if (nil==opts['M'] || ""==opts['M'])
+    opts['M'] = 1
+else
+    opts['M'] = opts['M'].to_i
+end
+
+# Alpha value (P-value threshold)
+if (nil == opts['V'] || opts['V'].to_f <= 0)
+    opts['V'] = 0.05
+else
+    opts['V'] = opts['V'].to_f
+end
+
+opts['b']=false  if (nil == opts['b']) 
+opts['f']=false  if (nil == opts['f']) 
+opts['a']=false  if (nil == opts['a'])
+
+
+
+########################################################################
+#
+# Read input files and compute enrichment/depletion and p-values 
+#
+########################################################################
+
+params = {
+    'INPUT_KIND'   => opts['K'],
+    'TEST'         => opts['T'],
+    'P_VALUE'      => opts['V'],
+    'BONFERRONI'   => opts['b'],
+    'FIXED_HEIGHT' => opts['f']
+}
+
+result = TSL.get_p_values(File.readlines(opts['P']), File.readlines(opts['N']), params)
+
+error_code  = result[0]
+error_line  = result[1]
+seq_length  = result[2]
+p_values    = result[3]
+frequencies = result[4]
+
+
+
+########################################################################
+#
+# Write output, if there were no errors 
+#
+########################################################################
+
+case error_code
+when 1
+    puts "ERROR: Positive example #{error_line} is malformatted."
+
+when 2
+    puts "ERROR: Positive example #{error_line} differs in length."
+
+when 3
+    puts "ERROR: Negative example #{error_line} is malformatted."
+
+when 4
+    puts "ERROR: Negative example #{error_line} differs in length."
+
+when 5
+    puts "ERROR: Positive and negative samples differ in sequence length."
+
+when 0   
+    if ("TXT" == opts['F'].upcase)
+        f = File.open(opts['O'], "w")
+
+        f.print "#POSITION\tSYMBOL\tFREQUENCY\tP-VALUE\n" 
+
+        for i in 0...(seq_length)
+            if ("A" == opts['K'])
+                for j in 0...(TSL.AMINOACIDS.length)
+                    if (p_values[i][j]<opts['V'] || opts['V']>=1.0)
+                        f.print "#{i+opts['M']}\t#{TSL.AMINOACIDS[j]}\t#{frequencies[i][j]}\t#{p_values[i][j]}\n"
+                    end
+                end
+            else
+                for j in 0...(TSL.NUCLEOTIDES.length)
+                    if (p_values[i][j]<opts['V'] || opts['V']>=1.0)
+                        f.print "#{i+opts['M']}\t#{TSL.NUCLEOTIDES[j]}\t#{frequencies[i][j]}\t#{p_values[i][j]}\n"
+                    end
+                end
+            end
+        end
+
+        f.close
+    else
+        result = TSL.get_heights(seq_length, p_values, frequencies, params)
+
+        conserved   = result[0]
+        enriched    = result[1]
+        depleted    = result[2]
+        max_height  = result[3]
+
+        max_height = 0.05  if (0==max_height)    
+
+        options = {
+            'INPUT_KIND'    => opts['K'],
+            'LOGO_HEIGHT'   => opts['H'],
+            'LOGO_WIDTH'    => opts['W'],
+            'LOGO_UNITS'    => opts['U'],
+            'COLOR_SCHEME'  => opts['C'],
+            'LOGO_START'    => opts['S'],
+            'LOGO_END'      => opts['E'],
+            'START_NUM'     => opts['M'],
+            'TITLE'         => opts['I'],
+            'XAXIS'         => opts['x'],
+            'YAXIS'         => opts['y'],
+            'SHRINK_FACTOR' => opts['A'],
+            'FIXED_HEIGHT'  => opts['f'],
+            'MAX_HEIGHT'    => max_height,
+            'RES'           => opts['R'],
+            'RES_UNITS'     => opts['X'],
+            'FORMAT'        => opts['F'].upcase,
+            'ANTIALIAS'     => opts['a'],
+            'OUTLINE'       => opts['o'],
+            'SHOW_BOX'      => opts['s']
+        }
+
+        Template.fill_template(conserved, enriched, depleted, options, opts['O'], "")
+    end
+end
+

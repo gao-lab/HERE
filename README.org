@@ -1,0 +1,2176 @@
+#+HTML_HEAD: <style> pre.src { white-space: pre-wrap; } </style>
+#+PANDOC_OPTIONS: self-contained:t
+
+
+This is the repository for reproducing results of Human Embryonic RNA Editome.
+ 
+* Prerequisites
+
+** Tools
+
+*** Basic tools
+
+- Java
+- Perl and the Bio:DB:Fasta module (from BioPerl)
+- pigz (to speed up gzip compression)
+- Python 3 (3.7 tested)
+- R
+- Snakemake >= 5.10.0 (to support the ~allow_missing~ argument of ~expand~) 
+  
+*** Bioinformatics command-line tools
+
+- Trim Galore! == 0.6.6 (with cutadapt 1.18)
+- fastp (0.20.1)
+- BWA
+- Picard
+- Samtools
+- Bedtools
+- Galaxy tools (for subsetting MAFs)
+  - The core scripts used here are already included in this repository:
+    - ~tools/galaxy/interval_maf_to_merged_fasta.py~
+    - ~tools/galaxy/galaxy/tools/util/maf_utilities.py~
+  - If you need to retrieve these python scripts by yourself, delete these two scripts above and run the following bash commands:
+#+BEGIN_SRC bash
+git clone https://github.com/galaxyproject/tools-iuc.git tools/galaxy-tools-iuc
+git clone -b release_21.01 git@github.com:galaxyproject/galaxy.git tools/galaxy.21.01
+mkdir -p tools/galaxy/galaxy/tools/util/
+
+cp tools/galaxy-tools-iuc/tools/genebed_maf_to_fasta/interval_maf_to_merged_fasta.py tools/galaxy/interval_maf_to_merged_fasta.py
+cp -L tools/galaxy.21.01/lib/galaxy/tools/util/maf_utilities.py tools/galaxy/galaxy/tools/util/maf_utilities.py
+#+END_SRC
+- GATK == 3.6.0
+  - Needs to be put as ~tools/GATK-3.6.0/GenomeAnalysisTK.jar~
+- BCFtools
+- STAR 2.7.0d
+- Stringtie v2.2.4
+- BLAT
+- SnpEff
+- Tabix
+- TargetScan v7.0
+  - Downloaded from [[http://www.targetscan.org/vert_80/vert_80_data_download/targetscan_70.zip]]
+  - Needs to be put as ~tools/targetscan_70/targetscan_70.pl~
+- miRanda v1.9
+  - Downloaded from http://cbio.mskcc.org/miRNA2003/src1.9/binaries/miRanda-1.9-i686-linux-gnu.tar.gz
+  - Needs to be put as ~tools/miRanda-1.9-i686-linux-gnu/bin/miranda~
+- The following UCSC tools (can be installed via bioconda)
+  - genePredToBed (https://anaconda.org/bioconda/ucsc-genepredtobed)
+  - gtfToGenePred (https://anaconda.org/bioconda/ucsc-gtftogenepred)
+- The ~tools/convertCoordinates_classpath/convertCoordinates.java~ kindly provided by Dr. Gokul Ramaswami needs to be compiled before use. Run ~javac tools/convertCoordinates_classpath/convertCoordinates.java~ to get the compiled ~tools/convertCoordinates_classpath/convertCoordinates.class~.
+- Two Sample Logos (tsl; [[http://www.twosamplelogo.org]])
+  - We packed a working tsl at ~tools/tsl~ in this repository. If you want to download the tsl again, the tsl needs to be put as ~tools/tsl~ such that the command-line is at ~tools/tsl/cgi-bin/tsl~
+  - Note that this tool depends on Ruby.
+- RNAEditingIndexer (for computing AEI)
+  - Follow ths installation instruction here: https://github.com/a2iEditing/RNAEditingIndexer
+  - Needs to be put as ~tools/RNAEditingIndexer~
+
+
+*** Python packages
+
+- pandas
+- biopython (whose script ~maf_build_index.py~ will be used; sometimes 0.8.13 will not work properly, use 0.8.9 instead)
+
+*** R packages
+
+
+**** CRAN packages
+
+- data.table
+- doMC
+- eulerr
+- foreach
+- ggalluvial
+- ggdendro
+- ggpubr
+- ggtext
+- ggVennDiagram
+- glue
+- iterators
+- magrittr
+- missForest
+- plyr
+- R.utils
+- readxl
+- rmarkdown
+- scales
+- statpsych
+- stringi
+- stringr
+- umap
+
+**** Bioconductor packages
+
+- ballgown
+- Biostrings
+- clusterProfiler
+- GEOquery
+- GEOmetadb (optional if using the pre-computed GSE-GSM tables in ~S20_1__extract_GSE_table_by_GEOmetadb~ in this git repository)
+- org.Hs.eg.db == 3.12.0
+
+
+
+
+
+** Datasets
+
+*** All 18 RNA-Seq fastq files (see [2. Deploy samples] below in [Identify the A-to-I RNA editome] for more details)
+   
+*** Reference genome (hg38) from UCSC
+
+#+BEGIN_SRC bash
+mkdir -p external/contigs/
+wget -P external/contigs/ http://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
+zcat external/contigs/hg38.fa.gz > external/contigs/hg38.fa
+samtools faidx external/contigs/hg38.fa
+#+END_SRC
+
+*** GENCODE GTF annotation (human, version 32)
+
+#+BEGIN_SRC bash
+mkdir -p external/reference.gene.annotation/GENCODE.annotation/32/
+wget -P external/reference.gene.annotation/GENCODE.annotation/32/  ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/gencode.v32.annotation.gtf.gz
+zcat external/reference.gene.annotation/GENCODE.annotation/32/gencode.v32.annotation.gtf.gz > external/reference.gene.annotation/GENCODE.annotation/32/gencode.v32.annotation.gtf
+ln -s -r external/reference.gene.annotation/GENCODE.annotation/32/gencode.v32.annotation.gtf external/reference.gene.annotation/GENCODE.annotation/32/gencode.annotation.gtf
+#+END_SRC
+
+*** GENCODE transcripts fasta file (human, version 32)
+
+#+BEGIN_SRC bash
+mkdir -p external/contigs/
+wget -P external/contigs/ ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/gencode.v32.transcripts.fa.gz
+#+END_SRC
+
+
+*** dbSNP version 151
+
+#+BEGIN_SRC bash
+mkdir -p external/dbSNP.vcf/151/common_all/
+wget -P external/dbSNP.vcf/151/common_all/  https://ftp.ncbi.nlm.nih.gov/snp/organisms/human_9606/VCF/00-common_all.vcf.gz
+
+ln -s -r external/dbSNP.vcf/151/common_all/00-common_all.vcf.gz external/dbSNP.vcf/151/common_all/dbSNP.vcf.gz
+
+#+END_SRC
+
+
+*** UCSC MAF tracks
+
+Note: 
+1. The MAF files must be decompressed before use, taking up to 153G in total.
+2. You need to build index before use.
+
+#+BEGIN_SRC bash
+mkdir -p ./external/UCSC.maf30way/
+for chr in `seq -f "chr%g" 1 22 ` chrX chrY
+do
+  wget -P ./external/UCSC.maf30way/ https://hgdownload.soe.ucsc.edu/goldenPath/hg38/multiz30way/maf/${chr}.maf.gz
+  zcat ./external/UCSC.maf30way/${chr}.maf.gz > ./external/UCSC.maf30way/${chr}.maf
+done
+
+## build index
+
+for chr in `seq -f "chr%g" 1 22 ` chrX chrY
+do
+    maf_build_index.py ./external/UCSC.maf30way/${chr}.maf
+done
+
+#+END_SRC
+
+*** UCSC tracks (others)
+
+Prepare the UCSC track files using Table Browser ([[https://www.genome.ucsc.edu/cgi-bin/hgTables/]]) as described below. All tracks should be from the hg38 assembly.
+
+Note: we also provide a copy of these files in the ~UCSC.Tables.tar.gz~ on Zenodo repository.
+
+| Dataset                        | group                      | track              | filter                             | output format | rename as                                                                           |
+|--------------------------------+----------------------------+--------------------+------------------------------------+---------------+-------------------------------------------------------------------------------------|
+| knownGene (GENCODE version 32) | Genes and Gene Predictions | GENCODE v32        | (none)                             | (default)     | ~external/UCSC.Table.Browser.knownGene.GENCODE/32/knownGene~                        |
+| dbSNP cDNA-flagged             | Variation                  | Flagged SNPs (151) | molType does match cDNA            | BED           | ~external/UCSC.Table.Browser.dbSNP/151/flagged.cDNA.only/dbSNP.bed~                 |
+| Alu repeats                    | Repeats                    | RepeatMasker       | repFamily does match Alu           | BED           | ~external/UCSC.Table.Browser.repeatmasker/repFamily.Alu/repeatmasker.bed~           |
+| Simple repeats                 | Repeats                    | RepeatMasker       | repFamily does match Simple_repeat | BED           | ~external/UCSC.Table.Browser.repeatmasker/repFamily.Simple_repeat/repeatmasker.bed~ |
+| Non-Alu repeats                | Repeats                    | RepeatMasker       | repFamily does NOT match Alu       | BED           | ~external/UCSC.Table.Browser.repeatmasker/repFamily.not.Alu/repeatmasker.bed~       |
+
+
+*** Genomic VCF files from worldwide cohort studies
+
+Download the corresponding *vcf.gz files (and their .tbi indices) as described below, and rename each individual chromosome-level VCF file as ~external/outer_vcf/{OUTER_VCF_NAME}/{OUTER_VCF_SUBSET}/outer.VCF~ (and its index as ~external/outer_vcf/{OUTER_VCF_NAME}/{OUTER_VCF_SUBSET}/outer.VCF.tbi~) where ~{OUTER_VCF_NAME}~ is described below for each study and ~{OUTER_VCF_SUBSET}~ is ~chr1, chr2, ..., chrX, chrY~:
+
+| Study                          | URL for official site                                                                                                     | ~OUTER_VCF_NAME~              |
+|--------------------------------+---------------------------------------------------------------------------------------------------------------------------+-------------------------------|
+| UWashington EVS                | [[https://evs.gs.washington.edu/EVS/]]                                                                                        | ~UWashington.EVS~             |
+| NCBI ALFA (version 2020.03.04) | [[https://ftp.ncbi.nih.gov/snp/population_frequency/archive/release_1/]]                                                      | ~NCBI.ALFA.2020.03.04~        |
+| gnomAD (v2.1.1, exomes)        | [[https://gnomad.broadinstitute.org]]                                                                                         | ~gnomAD_v2.1.1_exomes~        |
+| gnomAD (v2.1.1, genomes)       | [[https://gnomad.broadinstitute.org]]                                                                                         | ~gnomAD_v2.1.1_genomes~       |
+| gnomAD (v3.0, genomes)         | [[https://gnomad.broadinstitute.org]]                                                                                         | ~gnomAD_v3.0_genomes~         |
+| 1000Genomes                    | [[http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/release/20190312_biallelic_SNV_and_INDEL/]] | ~1000Genomes.phased.genotype~ |
+
+*** GEOmetadb sqlite (optional if using the pre-computed GSE-GSM tables in ~S20_1__extract_GSE_table_by_GEOmetadb~ )
+
+Use the R Bioconductor package ~GEOmetadb~ to download the ~GEOmetadb.sqlite.gz~, uncompress it, and rename it as ~external/NCBI.GEOmetadb/GEOmetadb.sqlite~.
+
+
+
+*** TargetScan miRNA family
+#+BEGIN_SRC bash
+mkdir -p external/TargetScan/
+wget -P external/TargetScan/ http://www.targetscan.org/vert_80/vert_80_data_download/miR_Family_Info.txt.zip
+unzip -d external/TargetScan/ ./external/TargetScan/miR_Family_Info.txt.zip
+
+awk 'OFS="\t"{if($6==2 && $3==9606)print $1,$2,$3}' ./external/TargetScan/miR_Family_Info.txt | sort | uniq > ./external/TargetScan/miR_Family_Info.human.temp.txt
+python tools/get_miR_family.py ./external/TargetScan/miR_Family_Info.human.temp.txt ./external/TargetScan/miR_Family_Info.txt ./external/TargetScan/miR_Family_Info.human.txt
+
+#+END_SRC
+
+
+* Notes before running codes
+** About the codes themselves
+
+- All codes are Linux Bash Shell commands.
+- *WARNING*: 
+  - Due to the large sample size, all ~snakemake~ commands before producing figures take a vast amount of cores and memory. The users are strongly recommended to adjust the ~thread_*~ and ~default_Xmx~ parameters and run these on a cluster.
+- *NOTES*:
+  - The ~snakemake~ commands below are ended with a ~-n~ (dry-run). Running with ~-n~ will only list all the tasks planned to run (plus their dependencies) and will not really run/submit these tasks. The user can remove the ~-n~ parameter and run the commands again once agreeing with the plan.
+
+
+** About ~--job~ in snakemake commands
+
+For each ~snakemake~ command, the ~--jobs~ parameter (i.e., number of cores to use in local mode and number of concurrent jobs allowed to run in cluster mode) is restricted to 1 here for demonstration only.
+
+** For HPC users
+
+If you'd like to run snakemake commands on clusters, please add the ~--cluster {your-own-cluster-submission-command}~ option to make snakemake run on clusters. See [[https://snakemake.readthedocs.io/en/stable/executing/cluster.html]] for more details.
+
+* List of all important files from Zenodo
+
+Download files from Zenodo (DOI: 10.5281/zenodo.6658521) at the corresponding location and uncompress them as specified.
+
+
+** ~pipeline.validation.bcf.files.tar.gz~
+
+- Download the archive as ~./zenodo-archives/pipeline.validation.bcf.files.tar.gz~.
+- Uncompress the archive by running ~tar -xzvf ./zenodo-archives/pipeline.validation.bcf.files.tar.gz~.
+
+
+** ~editome.files.tar.gz~
+   
+- Contains the identified editome (i.e., all edits identified in each sample): ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~. See below for its column description.
+- Other important files included:
+  - All variants (including edits and other non-edit variants) identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.dt.txt.gz~
+  - BED file for all identified edits (editing position only): ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.bed~
+   - SnpEff annotation of all variants (including edits and other non-edit variants) : ~result/S51_6__get_snpEff_annotation_subset_of_filtered_result/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.variant.only.snpEff.annotation.dt.txt.gz~
+- Download the archive as ~./zenodo-archives/editome.files.tar.gz~.
+- Uncompress the archive by running ~tar -xzvf ./zenodo-archives/editome.files.tar.gz~.
+
+*** Columns for edits
+
+ | Column                 | Meaning                                                                                                                                                |
+ |------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | ID                     | ID of the editing site                                                                                                                                 |
+ | SAMPLE                 | Sample ID (as GSM acccession)                                                                                                                          |
+ | SUBSET                 | Subset of this editing site. Alu: on Alu elements; RepNOTAlu: on repetitive elements that are not Alu; nonRep: not on repetitive elements              |
+ | AC                     | Number of A-to-G mismatch reads on this site reported by GATK                                                                                          |
+ | AN                     | Number of reads on this site reported by GATK                                                                                                          |
+ | AF                     | Editing level; equals AC/AN; reported by GATK                                                                                                          |
+ | gse                    | GSE accession of the dataset this sample comes from                                                                                                    |
+ | stage                  | Stage of this sample                                                                                                                                   |
+ | is.normal              | TRUE if this sample is normal, and FALSE otherwise                                                                                                     |
+ | disease                | Description of disease for this sample                                                                                                                 |
+ | treatment              | Description of treatment for this sample                                                                                                               |
+ | maternal.age           | Description of maternal age for this sample                                                                                                            |
+ | developmental.day      | Description of developmental day for this sample                                                                                                       |
+ | cell.line              | Description of cell line for this sample (only meaningful to hESC samples)                                                                             |
+ | srr.count              | Number of SRR runs from this sample                                                                                                                    |
+ | srr.mean.avgspotlen    | Mean AvgSpotLen of SRR runs for this sample                                                                                                            |
+ | srr.total.bytes        | Total bytes of SRR runs for this sample                                                                                                                |
+ | srr.total.bases        | Total bases of SRR runs for this sample                                                                                                                |
+ | srr.total.avgreadcount | Total AvgReadCount of SRR runs for this sample                                                                                                         |
+ | site.occurrence        | Site occurrence of this editing site in those of all 2,071 samples with matched ~stage~ and ~is.normal~                                                |
+ | CHROM                  | Chromosome of this editing site                                                                                                                        |
+ | POS                    | Position of this editing site (1-based)                                                                                                                |
+ | REF                    | Reference allele for this editing site (based on genomic Watson strand)                                                                                |
+ | ALT                    | Alternative allele for this editing site  (based on genomic Watson strand)                                                                             |
+ | event.summary          | Editing event summary for this site. Note that this could be either 'A>G' or 'A>G;T>C' (when two transcripts of opposite direction overlap this site). |
+
+ For snpEff annotations (other than ~CHROM, POS, ID, REF, ALT~ which have been described above), see the manual of snpEff.
+ 
+
+** ~expression.files.tar.gz~
+
+   - Contains the following:
+     - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+   - Download the archive as ~./zenodo-archives/expression.files.tar.gz~.
+   - Uncompress the archive by running ~tar -xzvf ./zenodo-archives/expression.files.tar.gz~.
+
+** ~RE.files.tar.gz~
+
+- Contains the following (see below for column description):
+  - The identified REs in normal samples: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.dt.txt.gz~ 
+  - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+- Other important files included:
+  - Edits in normal samples: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.dt.txt.gz~ 
+  - Occurrence of RE-matching edits in each normal sample: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.site.recurrence.comparison.CJ.dt.txt.gz~
+  - Observed edits identified in each normal sample, on valid genes only: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.observed.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+  - SnpEff annotation for observed edits identified in normal samples, on valid genes only: ~./result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/snpEff.annotation.for.subset.observed.edits.dt.txt.gz~
+  - Edit recurrence in each GSE133854 sample: ~./result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/GSE133854.all/subset.site.recurrence.comparison.CJ.dt.txt.gz~
+- Download the archive as ~./zenodo-archives/RE.files.tar.gz~.
+- Uncompress the archive by running ~tar -xzvf ./zenodo-archives/RE.files.tar.gz~.
+
+*** Columns for REs  
+
+ This table inherits columns from the editome in ~editome.files.tar.gz~ above, plus the following columns:
+
+
+ | Column                                   | Meaning                                                                                                                                                                                                                   |
+ |------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | group                                    | Group of this sample (named with ~stage~ @ ~is.normal~)                                                                                                                                                                   |
+ | depth                                    | Read coverage deduced from early bam alignment (~alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.bam~; see ~rule S52_1__check_variant_converage_of_merged_bam~ in ~pipeline.v3.part3.smk~) |
+ | total.sample.count.for.this.sample.group | (deprecated)                                                                                                                                                                                                              |
+ | total.sample.count                       | Total sample count for this group                                                                                                                                                                                         |
+ | site.occurrence.for.this.group           | Site occurrence of this editing site across all samples in this group (identical to ~site.occurrence~ for ~all.normal.samples~)                                                                                           |
+ | group.occurrence.pct                     | site.occurrence.for.this.group / total.sample.count.for.this.sample.group                                                                                                                                                 |
+
+
+*** Columns for snpEff annotation
+
+    
+ | Column               | Meaning                                                                                                                                                                                                                                       |
+ |----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | Gene_Name            | Name of gene                                                                                                                                                                                                                                  |
+ | Gene_ID              | Ensembl ID of Gene                                                                                                                                                                                                                            |
+ | Annotation           | SnpEff Annotation for this edit                                                                                                                                                                                                               |
+ | Annotation.pasted    | pasted Annotation for the site on the given gene locus (it is possible that the annotation of this site on different transcripts of the same gene locus might differ)                                                                         |
+ | Annotation.corrected | corrected Annotation by Annotation priority (see Methods)                                                                                                                                                                                     |
+ | Annotation.class     | "exonic.or.splicing.related", i.e., the edit is annotated as exonic or related to splicing (referred as 'exonic' in manuscript' , or "purely.intronic", i.e., the edit is annotated as purely intronic (referred as 'intronic' in manuscript) |
+
+
+
+
+** ~microRNA.TargetScan.and.miRanda.files.tar.gz~
+
+- Contains the following:
+  - TargetScan output for unedited transcripts: ~result/A02_8__get_editing_effect_on_miRNA_binding_sites/step09__concatenate_TargetScan_results_across_all_chromosomes/32/gencode.3utr.all.chromosomes.concatenated.headless.TargetScan.output.gz~.
+  - TargetScan output for edited transcripts: ~result/A02_8__get_editing_effect_on_miRNA_binding_sites/step10__concatenate_edited_TargetScan_results_across_all_chromosomes/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/edited.gencode.3utr.all.chromosomes.but.chrY.concatenated.headless.TargetScan.output.gz~
+  - miRanda output for unedited transcripts: ~result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step05__concatenate_miRanda_results_across_all_chromosomes/32/gencode.3utr.all.chromosomes.concatenated.headless.miRanda.output.gz~
+  - miRanda output for edited transcripts: ~result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step16__concatenate_all_edited_miRanda_results_across_all_chromosomes/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/all.edited.gencode.3utr.all.chromosomes.concatenated.headless.miRanda.output.gz~
+  - for other intersection files, see the section 'taking the intersection of TargetScan and miRanda' below
+- Download the archive as ~./zenodo-archives/microRNA.TargetScan.and.miRanda.files.tar.gz~.
+- Uncompress the archive by running ~tar -xzvf ./zenodo-archives/microRNA.TargetScan.and.miRanda.files.tar.gz~.
+
+** ~UCSC.Tables.tar.gz~
+
+   - See details at the section 'UCSC tracks (others)' in the Prerequisites section.
+   
+* Identify the A-to-I RNA editome
+
+
+** 1. Construct splice-aware genomes
+
+- This step constructs splice-aware genomes for the subsequent RNA editing calling and expression profiling.
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.smk --config threads_indexing=36 threads_trimming=1 threads_aligning=36 threads_merging_bams=1 threads_calling_variants=36 threads_auxiliary_processing=1 threads_auxiliary_processing_parallel=6 --jobs 1 -prk --nolock \
+    result/s05_1__index_contig_with_annotation/hg38.fa/32/bwa-index-10.1038_nmeth.2330/{95,96,75,103,120,144,145,45,85}/finished -n
+#+END_SRC
+
+** 2. Deploy samples
+
+- 18 datasets / 2071 samples in total
+
+| No. | Dataset   | # samples used | ~{DATASET_NAME}~ (used by later ~snakemake~ commands) |
+|-----+-----------+----------------+------------------------------------------------------|
+|   1 | GSE101571 |             23 | 200902-GSE101571-full                                |
+|   2 | GSE71318  |             48 | 200919-GSE71318-full48                               |
+|   3 | GSE133854 |            296 | 200924-GSE133854-all296                              |
+|   4 | GSE136447 |            508 | 201109-GSE136447-long508                             |
+|   5 | GSE125616 |            640 | 200911-GSE125616-all                                 |
+|   6 | GSE44183  |             21 | 201217-GSE44183-earlyhumanlong21                     |
+|   7 | GSE72379  |             16 | 201101-GSE72379-full16                               |
+|   8 | GSE36552  |            124 | 201104-GSE36552-full124                              |
+|   9 | GSE95477  |             20 | 201101-GSE95477-full20                               |
+|  10 | GSE65481  |             22 | 201031-GSE65481-full22                               |
+|  11 | GSE130289 |            139 | 201031-GSE130289-full139                             |
+|  12 | GSE100118 |             92 | 201101-GSE100118-full92                              |
+|  13 | GSE49828  |              3 | 201104-GSE49828-RNASeqonly3                          |
+|  14 | GSE64417  |             21 | 201218-GSE64417-hESConly21                           |
+|  15 | GSE62772  |             18 | 201102-GSE62772-hESC18                               |
+|  16 | GSE126488 |             40 | 201103-GSE126488-full40                              |
+|  17 | GSE73211  |             30 | 201102-GSE73211-ESC35                                |
+|  18 | GSE119324 |             10 | 201104-GSE119324-full10                              |
+
+Note that the total sample number is larger than 2071, which is the number of all samples that have at least one RNA edit identified.
+
+- Run the following to generate sample metadata files. This script also contains commented codes that put the reads ~r1.fastq.gz~ and ~r2.fastq.gz~ (or ~r.fastq.gz~ for single-ended samples) in the directory ~external/RNA-Seq-with-Run/{name-of-dataset}-{read-length-suffix}/{GSM}/{SRR}/RNA/~. You can modify the path of original fastq files (named with ~YOUR-PATH-with-${srr}-TO~) and uncomment them to deploy the fastq files automatically.
+  - NOTE: 1 sample of GSE36552 (GSM922196/SRR491011) has invalid reads (i.e., reads whose sequence length is not equal to the length of quality). We removed the invalid reads from this sample during processing.
+
+#+BEGIN_SRC bash
+bash scripts/miscellaneous/generate_sample_metadata_files.sh
+#+END_SRC
+
+** 3. Call variants (for RNA editing events identification)
+
+Here we call RNA editing events for each dataset separately. Replace the ~{DATASET_NAME}~ with the dataset name in the table above, and run the command to finish these analyses. 
+
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_indexing=20 threads_trimming=4 threads_aligning=20 threads_merging_bams=1 threads_calling_variants=20 threads_auxiliary_processing=1 threads_auxiliary_processing_parallel=4 default_Xmx='-Xmx60G' --jobs 1 -prk --nolock \
+    result/B15_1__get_sample_RNA_editing_sites_v3/{DATASET_NAME}/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished.step07__apply_complex_filter_1____part09__reformat_data_as_standard_rich_vcf -n
+#+END_SRC
+
+
+*** Example codes for GSE101571
+
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_indexing=20 threads_trimming=4 threads_aligning=20 threads_merging_bams=1 threads_calling_variants=20 threads_auxiliary_processing=1 threads_auxiliary_processing_parallel=4 default_Xmx='-Xmx60G' --jobs 1 -prk --nolock \
+    result/B15_1__get_sample_RNA_editing_sites_v3/200902-GSE101571-full/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished.step07__apply_complex_filter_1____part09__reformat_data_as_standard_rich_vcf -n
+#+END_SRC
+
+
+** 4. Merge variants across datasets
+
+
+*** 4.1. Specify the total dataset (~210215-sixth-dataset~)
+
+#+BEGIN_SRC sh
+cat ./external/DATASET_RNA_EDITING_COLLECTION_NAME_DIRECTORY/{200902-GSE101571-full,200919-GSE71318-full48,200924-GSE133854-all296,201109-GSE136447-long508,200911-GSE125616-all,201217-GSE44183-earlyhumanlong21,201101-GSE72379-full16,201104-GSE36552-full124,201101-GSE95477-full20,201031-GSE65481-full22,201031-GSE130289-full139,201101-GSE100118-full92,201104-GSE49828-RNASeqonly3,201218-GSE64417-hESConly21,201102-GSE62772-hESC18,201103-GSE126488-full40,201102-GSE73211-ESC35,201104-GSE119324-full10} > ./external/DATASET_RNA_EDITING_COLLECTION_NAME_DIRECTORY/210215-sixth-dataset
+#+END_SRC
+
+*** 4.2. Merge results across datasets
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_merging_vcfs=36 threads_annotating=18 threads_auxiliary_processing=36 --jobs 1 -prk --nolock \
+    result/S16_1__concatenate_RNA_editing_site_from_a_dataset_collection/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished \
+    result/S16_3__get_RNA_editing_site_long_table_from_a_dataset_collection/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished -n
+#+END_SRC
+
+
+** 5. Annotate the variants
+
+*** 5.1. Get SnpEff annotations for each variant
+
+Because the raw variants are independent of each other in later filtering steps, here we divide the merged results into different chromosomal bins, process them separately, and merge again the per-bin results into one.
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_merging_vcfs=4 threads_annotating=18 threads_auxiliary_processing=36 --jobs 1 -prk --nolock \ 
+    result/S18_1__combine_annotations/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/snpEff/basic/10000000/{finished.step02__combine_merged_vcf_reformatted_with_snpEff_ANN_split_annotation_dt_filename____patch01__get_full_annotation,finished.step05__combine_merged_variant_only_snpEff_event_summary_dt_filename} -n
+#+END_SRC sh
+
+*** 5.2. Check overlap with genomic variants from worldwide cohorts
+
+- Genomic variants spanning chromosomes 1-22, X, and Y:
+  - UWashington EVS
+  - NCBI ALFA (version 2020.03.04)
+  - gnomAD v2.1.1 exomes
+  - gnomAD v3.0 genomes
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_annotating=6 threads_auxiliary_processing=6 --jobs 1 -prk --nolock \
+    result/S19_1__combine_annotations/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/bcftools.isec.with.outer.vcf/basic/10000000/{UWashington.EVS,NCBI.ALFA.2020.03.04,gnomAD_v2.1.1_exomes,gnomAD_v3.0_genomes}/collapse_all_and_keep_self_vcf/finished.step06__combine_merged_variant_only_vcf_gz_bcftools_isec_outer_vcf_result_vcf_gz_filename_with_collapse_all_and_keep_self_vcf -n
+#+END_SRC
+
+- Genomic variants spanning chromosomes 1-22 and X (i.e., without chromosome Y):
+  - 1000Genomes
+  - gnomAD v2.1.1 genomes
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_annotating=2 threads_auxiliary_processing=2 --jobs 1 -prk --nolock \
+    result/S19_1__combine_annotations/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/bcftools.isec.with.outer.vcf/basic_without_Y/10000000/{1000Genomes.phased.genotype,gnomAD_v2.1.1_genomes}/collapse_all_and_keep_self_vcf/finished.step06__combine_merged_variant_only_vcf_gz_bcftools_isec_outer_vcf_result_vcf_gz_filename_with_collapse_all_and_keep_self_vcf -n
+#+END_SRC
+
+- Combine the results across all cohorts:
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --config threads_concatenating_vcfs=36 --jobs 1 -prk --nolock \
+    result/S51_1__combine_multiple_population_isec_results/210215-sixth-dataset/finished -n
+#+END_SRC
+
+** 6. Generate phenotype table (needed by variant filtering)
+
+*** 6.1. Generate phenotype dataset list
+
+#+BEGIN_SRC sh
+mkdir -p external/DATASET_PHENOTYPE_COLLECTION_NAME_DIRECTORY/
+echo STUDY,PHENOTYPE_FILENAME > external/DATASET_PHENOTYPE_COLLECTION_NAME_DIRECTORY/201221-fifth-phenotype-collection
+for GSE in GSE101571 GSE71318 GSE133854 GSE136447 GSE125616 GSE44183 GSE72379 GSE36552 GSE95477 GSE65481 GSE130289 GSE100118 GSE49828 GSE64417 GSE62772 GSE126488 GSE73211 GSE119324
+do
+    echo ${GSE},${GSE}.txt >> external/DATASET_PHENOTYPE_COLLECTION_NAME_DIRECTORY/201221-fifth-phenotype-collection
+done
+#+END_SRC
+
+*** 6.2. Generate phenotype table
+
+NOTE: this ~snakemake~ command costs few CPU cores and memory.
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.smk --jobs 1 -prk --nolock result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+** 7. Filter for RNA editing events
+
+*** 7.1. Filter against variants overlapping with genomic variants from worldwide cohorts
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --config threads_bcftools_isec=36  --jobs 1 -prk --nolock \
+    result/S51_2__filter_against_population_variants/210215-sixth-dataset/finished -n
+#+END_SRC
+
+*** 7.2. Filter for variants with enough read support
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --config threads_bcftools_isec=36  --jobs 1 -prk --nolock \
+    result/S51_3__filter_for_variants_with_enough_read_support/210215-sixth-dataset/finished -n
+#+END_SRC
+
+
+*** 7.3. Filter for variants with enough sample support
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --config threads_bcftools_isec=36 --jobs 1 -prk --nolock \
+    result/S51_4__filter_for_variants_with_enough_sample_support/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+*** 7.4. Filter for transcribable A-to-G and A-to-G-or-T-to-C variants
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --config threads_bcftools_isec=36 --jobs 1 -prk --nolock \
+    result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+*** 7.5. Add snpEff annotation
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk --jobs 1 -prk --nolock \
+    result/S51_6__get_snpEff_annotation_subset_of_filtered_result/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+
+
+* Validate the A-to-I identification pipeline on single-cell A375 DNA/RNA-paired sequencing dataset
+
+** 1. Deploy samples
+
+#+BEGIN_SRC bash
+bash scripts/miscellaneous/generate_sample_metadata_files_for_A375.sh
+#+END_SRC
+
+** 2. Call variants
+
+*** 2.1. A375 DNA
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_indexing=20 threads_trimming=1 threads_aligning=20 threads_merging_bams=1 threads_calling_variants=20 threads_auxiliary_processing=1 threads_auxiliary_processing_parallel=4 default_Xmx='-Xmx60G' --jobs 1 -prk --nolock \
+    result/B15_1__get_sample_RNA_editing_sites_v3/210203-GSE144296.A375-DNA/__merged__/DNTRSeq-DNA-trimming/hg38.fa/32/bwa-index-default/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/finished.step02__call_variants____part06__really_call_variants -n
+#+END_SRC
+
+*** 2.2. A375 RNA
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_indexing=20 threads_trimming=1 threads_aligning=20 threads_merging_bams=1 threads_calling_variants=20 threads_auxiliary_processing=1 threads_auxiliary_processing_parallel=4 default_Xmx='-Xmx60G' --jobs 1 -prk --nolock \
+    result/B15_1__get_sample_RNA_editing_sites_v3/210203-GSE144296.A375-RNA/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished.step07__apply_complex_filter_1____part09__reformat_data_as_standard_rich_vcf -n
+#+END_SRC
+
+** 3. Specify the dataset
+
+#+BEGIN_SRC bash
+
+R -e 'library("data.table"); library("magrittr"); geo.dt <- fread("./external/NCBI.SRA.MetaData/GSE144296.txt")[Cell_Line=="A375"][, cell_ID_occurrence:=.N, list(cell_ID)][cell_ID_occurrence==2]; fwrite(geo.dt[LibrarySource=="TRANSCRIPTOMIC", list(TYPE="paired-37-37", DATASET_NAME="210203-GSE144296.A375-RNA-37-37", SAMPLE_NAME=`Sample Name`, INDEXER_PARAMETERS=32)], "external/DATASET_RNA_EDITING_NAME_DIRECTORY/210203-GSE144296.A375-RNA-with-DNA-37-37")'
+
+echo 210203-GSE144296.A375-RNA-with-DNA-37-37 > ./external/DATASET_RNA_EDITING_COLLECTION_NAME_DIRECTORY/210203-GSE144296.A375-RNA-with-DNA-37-37
+
+#+END_SRC
+
+** 4. Merge A375 RNA variants
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_merging_vcfs=36 threads_annotating=18 threads_auxiliary_processing=36 -jobs 1 -prk --nolock \
+    result/S16_1__concatenate_RNA_editing_site_from_a_dataset_collection/210203-GSE144296.A375-RNA-with-DNA-37-37/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished \
+    result/S16_3__get_RNA_editing_site_long_table_from_a_dataset_collection/210203-GSE144296.A375-RNA-with-DNA-37-37/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/finished -n
+#+END_SRC
+
+** 5. Annotate A375 RNA varians
+
+*** 5.1. Get SnpEff annotations for each variant
+
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_merging_vcfs=4 threads_annotating=18 threads_auxiliary_processing=36  --jobs 1 -prk --nolock \
+    result/S18_1__combine_annotations/210203-GSE144296.A375-RNA-with-DNA-37-37/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/snpEff/basic/1000000000/{finished.step02__combine_merged_vcf_reformatted_with_snpEff_ANN_split_annotation_dt_filename____patch01__get_full_annotation,finished.step05__combine_merged_variant_only_snpEff_event_summary_dt_filename} -n
+#+END_SRC sh
+
+
+*** 5.2. Check overlap with genomic variants from worldwide cohorts
+
+- Genomic variants spanning chromosomes 1-22, X, and Y:
+  - UWashington EVS
+  - NCBI ALFA (version 2020.03.04)
+  - gnomAD v2.1.1 exomes
+  - gnomAD v3.0 genomes
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_annotating=6 threads_auxiliary_processing=6 --jobs 1 -prk --nolock \
+    result/S19_1__combine_annotations/210203-GSE144296.A375-RNA-with-DNA-37-37/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/bcftools.isec.with.outer.vcf/basic/1000000000/{UWashington.EVS,NCBI.ALFA.2020.03.04,gnomAD_v2.1.1_exomes,gnomAD_v3.0_genomes}/collapse_all_and_keep_self_vcf/finished.step06__combine_merged_variant_only_vcf_gz_bcftools_isec_outer_vcf_result_vcf_gz_filename_with_collapse_all_and_keep_self_vcf -n
+#+END_SRC
+
+
+- Genomic variants spanning chromosomes 1-22 and X (i.e., without chromosome Y):
+  - 1000Genomes
+  - gnomAD v2.1.1 genomes
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_annotating=2 threads_auxiliary_proces sing=2  --jobs 1 -prk --nolock \
+    result/S19_1__combine_annotations/210203-GSE144296.A375-RNA-with-DNA-37-37/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/bcftools.isec.with.outer.vcf/basic_without_Y/1000000000/{1000Genomes.phased.genotype,gnomAD_v2.1.1_genomes}/collapse_all_and_keep_self_vcf/finished.step06__combine_merged_variant_only_vcf_gz_bcftools_isec_outer_vcf_result_vcf_gz_filename_with_collapse_all_and_keep_self_vcf -n
+#+END_SRC
+
+
+- Combine the results across all cohorts:
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part4.smk  --config threads_concatenating_vcfs=36 --jobs 1 -prk --nolock \
+    result/S71_1__combine_multiple_population_isec_results_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/finished -n
+#+END_SRC
+
+** 6. Generate phenotype table (needed by variant filtering)
+
+This step is skipped, because all cells are of the same phenotype (A375 cell line).
+
+** 7. Filter for RNA editing events
+
+*** 7.1. Filter against variants overlapping with genomic variants from worldwide cohorts
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part4.smk  --config threads_bcftools_isec=36 --jobs 1 -prk --nolock \
+    result/S71_2__filter_against_population_variants_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/finished -n
+#+END_SRC
+
+*** 7.2. Filter for variants with enough read support
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part4.smk  --config threads_bcftools_isec=36  -prk --nolock \
+    result/S71_3__filter_for_variants_with_enough_read_support_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/finished -n
+#+END_SRC
+
+
+*** 7.3. Filter for variants with enough sample support
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part4.smk  --config threads_bcftools_isec=36 -prk --nolock \
+    result/S71_4__filter_for_variants_with_enough_sample_support_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/210203-GSE144296.A375-RNA-with-DNA-37-37/finished -n
+#+END_SRC
+
+
+
+*** 7.4. Filter for transcribable A-to-G and A-to-G-or-T-to-C variants
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part4.smk  --config threads_bcftools_isec=36 -prk --nolock \
+    result/S71_5__filter_for_A_to_G_sites_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/210203-GSE144296.A375-RNA-with-DNA-37-37/finished -n
+#+END_SRC
+
+
+* Mark unsequenced sites
+
+
+** 1. Check variant coverage of each merged bam
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk --config threads_merging_vcfs=1 threads_annotating=1 threads_auxiliary_processing=1 --jobs 1 -prk --nolock \
+    result/B52_1__check_variant_converage_of_merged_bam/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+
+** 2. Combine all coverage info from bam files
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk --config threads_reduce_and_pigz_compress_tables=36 --jobs 1 -prk --nolock \
+    result/S52_2__concatenate_all_variant_coverages_of_merged_bam/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+** 3. Extract zero and nonzero depth records
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk --config threads_reduce_and_pigz_compress_tables=36 --jobs 1 -prk --nolock \
+    result/S52_2__concatenate_all_variant_coverages_of_merged_bam/210215-sixth-dataset/201221-fifth-phenotype-collection/finished.{patch01__extract_zero_depth_records,patch02__extract_nonzero_depth_records} -n
+#+END_SRC
+
+** 4. Mark unsequenced sites per samples
+
+- *WARNING*: this step takes about 100GB memory. With 10 threads it finishes within 10-15 minutes.
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk --config threads_reduce_and_pigz_compress_tables=36 --jobs 1 -prk --nolock \
+    result/S52_3__mark_unsequenced_editing_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+
+   
+* Get expression profile
+
+
+
+The expression profile is not needed by identification of RNA editing events, but is needed by analyses related to maternal mRNA clearance.
+
+
+** 1. Get expression profile for each dataset
+
+Replace the ~{DATASET_NAME}~ with the dataset name in the table above, and run the command to finish these analyses. 
+
+
+- *WARNING*: steps in expression profiling use the same set of trimmed reads as those used by identification of RNA editing events. Be sure *NOT* to run the steps below when the reads are being trimmed by the step 'Call variants (for RNA editing events identification)'.
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_aligning=10 threads_calling_expression=5 threads_auxiliary_processing=1 default_Xmx='-Xmx8G' --jobs 1 -prk --nolock \
+    result/BS06_1__get_expression_level/{DATASET_NAME}/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/finished.step02__call_expression -n
+#+END_SRC
+
+*** Example codes for GSE101571
+
+#+BEGIN_SRC bash
+snakemake --snakefile ./pipeline.v3.smk --config threads_aligning=10 threads_calling_expression=5 threads_auxiliary_processing=1 default_Xmx='-Xmx8G' --jobs 1 -prk --nolock \
+    result/BS06_1__get_expression_level/200902-GSE101571-full/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/finished.step02__call_expression -n
+#+END_SRC
+
+
+** 2. Combine all expression profiles into one
+
+*** 2.1. Specify the total dataset (~210215-sixth-dataset~)
+
+#+BEGIN_SRC bash
+
+cat ./external/DATASET_EXPRESSION_COLLECTION_NAME_DIRECTORY/{200902-GSE101571-full,200919-GSE71318-full48,200924-GSE133854-all296,201109-GSE136447-long508,200911-GSE125616-all,201217-GSE44183-earlyhumanlong21,201101-GSE72379-full16,201104-GSE36552-full124,201101-GSE95477-full20,201031-GSE65481-full22,201031-GSE130289-full139,201101-GSE100118-full92,201104-GSE49828-RNASeqonly3,201218-GSE64417-hESConly21,201102-GSE62772-hESC18,201103-GSE126488-full40,201102-GSE73211-ESC35,201104-GSE119324-full10} > ./external/DATASET_EXPRESSION_COLLECTION_NAME_DIRECTORY/210215-sixth-dataset
+
+#+END_SRC
+
+*** 2.2. Combine all expression profiles into one
+
+#+BEGIN_SRC bash
+
+snakemake --snakefile ./pipeline.v3.part2.smk --config threads_auxiliary_processing=10 --jobs 1 -prk --nolock  \
+    result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/finished.step03__get_expression_matrix_by_ballgown -n
+
+#+END_SRC
+
+
+* Get Total sample count and RE info
+
+** 1. Get total sample count
+
+snakemake --snakefile ./analysis.v1.part1.smk  --jobs 1 -prk --nolock \
+    report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.sample.count.for.normal.stages.finished -n
+#+END_SRC
+
+** 2. Get RE info
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./analysis.v1.part2.smk --jobs 1 -prk --nolock \
+    result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/finished -n
+#+END_SRC
+
+** 3. Get edit recurrence in GSE133854
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./analysis.v1.part2.smk --jobs 1  -prk --nolock \
+    result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/GSE133854.all/finished -n
+#+END_SRC
+
+
+* Annotate expression cluster
+
+
+#+BEGIN_SRC sh
+snakemake --snakefile ./pipeline.v3.part3.smk  --jobs 1 -prk --nolock \
+    result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/finished -n
+#+END_SRC
+
+
+* Annotate microRNA binding sites (MBS) and effects of RNA edits on them
+  
+** TargetScan-based predictions
+
+
+*** 1. Generate the 3'-UTR region block file
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step01__get_3UTR_blocks/32/gencode.3utr.dt.csv.gz -n
+ #+END_SRC
+
+*** 2. Get 3'-UTR bed file per chromosome 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step02__get_3UTR_bed_per_chromosome/32/finished -n
+ #+END_SRC
+
+*** 3. Generate MAF fasta per chromosome 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step03__get_maf_fasta_per_chromosome/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+ #+END_SRC
+
+*** 4. Generate inputs for TargetScan (original, unedited 3'-UTR) 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step04__generate_TargetScan_input_per_chromosome/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+ #+END_SRC
+
+*** 5. Run TargetScan on the original 3'-UTR 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step05__run_TargetScan_per_chromosome/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+ #+END_SRC
+
+*** 6. Map each RNA edit to its corresponding 3'-UTR (if any) 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step06__compute_edit_relative_position_on_3UTR/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/gencode.3utr.and.edit.CJ.dt.csv.gz -n
+ #+END_SRC
+
+
+*** 7. Generate inputs for TargetScan (edited 3'-UTR)
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step07__get_edited_TargetScan_input_per_chromosome/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+ #+END_SRC
+
+
+*** 8. Run TargetScan on the edited 3'-UTR
+
+ We note that this is not run for chrY, because no 3'-UTR REs were identified on this chromosome.
+   
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --jobs 1 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step08__run_TargetScan_on_edited_per_chromosome/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X} -n
+ #+END_SRC
+
+
+*** 9. Merge TargetScan output for unedited 3'-UTR
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --cores 10 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step09__concatenate_TargetScan_results_across_all_chromosomes/32/gencode.3utr.all.chromosomes.concatenated.headless.TargetScan.output.gz -n
+ #+END_SRC
+
+
+*** 10. Merge TargetScan output for edited 3'-UTR 
+
+ #+BEGIN_SRC bash
+ snakemake --snakefile ./analysis.v1.part2.smk  --cores 10 -prk --nolock \
+     result/A02_8__get_editing_effect_on_miRNA_binding_sites/step10__concatenate_edited_TargetScan_results_across_all_chromosomes/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/edited.gencode.3utr.all.chromosomes.but.chrY.concatenated.headless.TargetScan.output.gz -n
+ #+END_SRC
+  
+
+** miRanda-based predictions
+
+   Must be run after TargetScan-based predictions (it uses some input files prepared for TargetScan-based predictions).
+
+*** 1. Generate miRNA fasta
+
+    #+begin_src shell
+    snakemake --cores 5 -prk --snakefile ./analysis.v1.part2.smk result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step00__get_miRNA_Family_human_fasta/finished -n
+    #+end_src
+
+*** 2. Prepare for unedited 3'-UTR sequences
+
+    #+begin_src shell
+    snakemake --cores 5 -prk --snakefile ./analysis.v1.part2.smk result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step01__get_3UTR_sequences_from_maf_blocks/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X} -n
+    #+end_src
+
+
+*** 3. Run miRanda for unedited 3UTR sequences
+
+    #+begin_src shell
+    snakemake --cores 1 -prk --snakefile ./analysis.v1.part2.smk  result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step02__run_miRanda_per_chromosome/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X} -n
+    #+end_src
+
+*** 4. Concatenate unedited predictions
+
+    #+begin_src shell
+    snakemake --cores 1  -prk --snakefile ./analysis.v1.part2.smk  result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step05__concatenate_miRanda_results_across_all_chromosomes/32/finished -n
+    #+end_src
+
+*** 5. Prepare for edited 3'-UTR sequences
+
+    #+begin_src shell
+    snakemake --nolock --cores 1 -prk --snakefile ./analysis.v1.part2.smk  result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step13__get_all_edited_3UTR_sequences_from_edited_maf_blocks/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+    #+end_src
+
+*** 6. Run miRanda on all edited 3UTR sequences
+
+    #+begin_src shell
+    snakemake --nolock --cores 1  -prk --snakefile ./analysis.v1.part2.smk  result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step14__run_miRanda_per_all_edited_chromosome/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/{hsa-let-7a-5p,hsa-let-7b-5p,hsa-let-7c-5p,hsa-let-7d-5p,hsa-let-7e-5p,hsa-let-7f-5p,hsa-let-7g-5p,hsa-let-7i-5p,hsa-miR-100-5p,hsa-miR-101-3p.1,hsa-miR-101-3p.2,hsa-miR-103a-3p,hsa-miR-106a-5p,hsa-miR-106b-5p,hsa-miR-107,hsa-miR-10a-5p,hsa-miR-10b-5p,hsa-miR-122-5p,hsa-miR-124-3p.1,hsa-miR-124-3p.2,hsa-miR-125a-5p,hsa-miR-125b-5p,hsa-miR-126-3p.1,hsa-miR-126-3p.2,hsa-miR-1271-5p,hsa-miR-128-3p,hsa-miR-129-1-3p,hsa-miR-129-2-3p,hsa-miR-129-5p,hsa-miR-1297,hsa-miR-130a-3p,hsa-miR-130a-5p,hsa-miR-130b-3p,hsa-miR-132-3p,hsa-miR-133a-3p.1,hsa-miR-133a-3p.2,hsa-miR-133b,hsa-miR-135a-5p,hsa-miR-135b-5p,hsa-miR-137,hsa-miR-138-5p,hsa-miR-139-5p,hsa-miR-1-3p,hsa-miR-140-3p.1,hsa-miR-140-3p.2,hsa-miR-140-5p,hsa-miR-141-3p,hsa-miR-142-3p.1,hsa-miR-142-3p.2,hsa-miR-142-5p,hsa-miR-143-3p,hsa-miR-144-3p,hsa-miR-145-5p,hsa-miR-146a-5p,hsa-miR-146b-5p,hsa-miR-147b,hsa-miR-148a-3p,hsa-miR-148b-3p,hsa-miR-150-5p,hsa-miR-152-3p,hsa-miR-153-3p,hsa-miR-155-5p,hsa-miR-15a-5p,hsa-miR-15b-5p,hsa-miR-16-5p,hsa-miR-17-5p,hsa-miR-181a-5p,hsa-miR-181b-5p,hsa-miR-181c-5p,hsa-miR-181d-5p,hsa-miR-182-5p,hsa-miR-183-5p.1,hsa-miR-183-5p.2,hsa-miR-184,hsa-miR-187-3p,hsa-miR-18a-5p,hsa-miR-18b-5p,hsa-miR-190a-5p,hsa-miR-190b,hsa-miR-191-5p,hsa-miR-192-5p,hsa-miR-193a-3p,hsa-miR-193a-5p,hsa-miR-193b-3p,hsa-miR-194-5p,hsa-miR-195-5p,hsa-miR-196a-5p,hsa-miR-196b-5p,hsa-miR-199a-3p,hsa-miR-199a-5p,hsa-miR-199b-3p,hsa-miR-199b-5p,hsa-miR-19a-3p,hsa-miR-19b-3p,hsa-miR-200a-3p,hsa-miR-200b-3p,hsa-miR-200c-3p,hsa-miR-202-5p,hsa-miR-203a-3p.1,hsa-miR-203a-3p.2,hsa-miR-204-5p,hsa-miR-205-5p,hsa-miR-206,hsa-miR-208a-3p,hsa-miR-208b-3p,hsa-miR-20a-5p,hsa-miR-20b-5p,hsa-miR-210-3p,hsa-miR-211-5p,hsa-miR-212-3p,hsa-miR-212-5p,hsa-miR-214-5p,hsa-miR-215-5p,hsa-miR-21-5p,hsa-miR-216a-3p,hsa-miR-216a-5p,hsa-miR-216b-5p,hsa-miR-217,hsa-miR-218-5p,hsa-miR-219a-5p,hsa-miR-221-3p,hsa-miR-222-3p,hsa-miR-223-3p,hsa-miR-22-3p,hsa-miR-23a-3p,hsa-miR-23b-3p,hsa-miR-23c,hsa-miR-24-3p,hsa-miR-25-3p,hsa-miR-26a-5p,hsa-miR-26b-5p,hsa-miR-27a-3p,hsa-miR-27b-3p,hsa-miR-29a-3p,hsa-miR-29b-3p,hsa-miR-29c-3p,hsa-miR-301a-3p,hsa-miR-301b-3p,hsa-miR-302a-3p,hsa-miR-302b-3p,hsa-miR-302c-3p.1,hsa-miR-302c-3p.2,hsa-miR-302d-3p,hsa-miR-302e,hsa-miR-30a-5p,hsa-miR-30b-5p,hsa-miR-30c-5p,hsa-miR-30d-5p,hsa-miR-30e-5p,hsa-miR-3129-5p,hsa-miR-31-5p,hsa-miR-32-5p,hsa-miR-338-3p,hsa-miR-33a-5p,hsa-miR-33b-5p,hsa-miR-34a-5p,hsa-miR-34c-5p,hsa-miR-363-3p,hsa-miR-365a-3p,hsa-miR-365b-3p,hsa-miR-3666,hsa-miR-367-3p,hsa-miR-3681-3p,hsa-miR-372-3p,hsa-miR-373-3p,hsa-miR-375,hsa-miR-383-5p.1,hsa-miR-383-5p.2,hsa-miR-424-5p,hsa-miR-425-5p,hsa-miR-4262,hsa-miR-429,hsa-miR-4295,hsa-miR-4319,hsa-miR-4458,hsa-miR-4465,hsa-miR-449a,hsa-miR-449b-5p,hsa-miR-4500,hsa-miR-451a,hsa-miR-454-3p,hsa-miR-455-3p.1,hsa-miR-455-3p.2,hsa-miR-455-5p,hsa-miR-4735-3p,hsa-miR-4770,hsa-miR-4782-3p,hsa-miR-489-3p,hsa-miR-490-3p,hsa-miR-497-5p,hsa-miR-499a-5p,hsa-miR-506-3p,hsa-miR-5195-3p,hsa-miR-519d-3p,hsa-miR-520a-3p,hsa-miR-520b,hsa-miR-520c-3p,hsa-miR-520d-3p,hsa-miR-520e,hsa-miR-520f-3p,hsa-miR-526b-3p,hsa-miR-551a,hsa-miR-551b-3p,hsa-miR-5590-3p,hsa-miR-590-5p,hsa-miR-6088,hsa-miR-613,hsa-miR-6766-3p,hsa-miR-6807-3p,hsa-miR-6838-5p,hsa-miR-7153-5p,hsa-miR-7-5p,hsa-miR-802,hsa-miR-92a-3p,hsa-miR-92b-3p,hsa-miR-93-5p,hsa-miR-9-5p,hsa-miR-96-5p,hsa-miR-98-5p,hsa-miR-99a-5p,hsa-miR-99b-5p}/finished.chr{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y} -n
+    #+end_src
+    
+*** 7. Concatenate edited predictions
+
+    #+begin_src shell
+      snakemake --nolock --cores 1 -prk --snakefile ./analysis.v1.part2.smk  result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step16__concatenate_all_edited_miRanda_results_across_all_chromosomes/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/finished -n
+    #+end_src
+
+
+    
+    
+** taking the intersection of TargetScan and miRanda
+
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/miRNA.intersection.all.edits/run_internal_prepare_intersection_of_ts_and_miRanda_all_edits.R
+#+end_src
+
+   
+* Annotate AEI
+
+Must be run after the editome, the expression profile, and the phenotype table were generated.
+  
+#+begin_src shell
+    snakemake --conda-frontend conda --use-conda --config threads_computing_AEI=1 --snakefile ./pipeline.v3.part2.AEI.smk result/BS80_1__compute_AEI/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/finished -prk --nolock -j 1 -n
+#+end_src
+  
+* Generate figures and tables
+
+See the Zenodo repository (DOI: 10.5281/zenodo.6658521) for the input files needed.
+
+   
+** Figure 1A-D and its Supplementary Figures
+
+Input:
+- Shipped with the git repository:
+  - edits identified: ~result/S71_5__filter_for_A_to_G_sites_for_control/210203-GSE144296.A375-RNA-with-DNA-37-37/210203-GSE144296.A375-RNA-with-DNA-37-37/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+  - sample annotation: ~external/NCBI.SRA.MetaData/GSE144296.txt~
+- From Zenodo archive ~pipeline.validation.bcf.files.tar.gz~:
+  - bcf files for DNA-Seq: ~result/S15_1__get_sample_RNA_editing_sites_v3/paired-37-37/210203-GSE144296.A375-DNA-37-37/${SAMPLE}/__merged__/DNTRSeq-DNA-trimming/hg38.fa/32/bwa-index-default/DNA/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.bcf~, where ${SAMPLE} is available from sample annotation
+  - bcf files for RNA-Seq: ~result/S15_1__get_sample_RNA_editing_sites_v3/paired-37-37/210203-GSE144296.A375-RNA-37-37/GSM4839055/__merged__/DNTRSeq-RNA-trimming/hg38.fa/32/bwa-index-10.1038_nmeth.2330/32/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.bcf~, where ${SAMPLE} is available from sample annotation
+
+*** Figure 1D
+
+**** Fast run (starting from the data for plotting directly):
+
+Starting from this file (also shipped with this repository): ~"./report.ver2/pipeline.validation/210203-GSE144296.A375/combined.RNA.DNA.comparison.dt.csv.gz"~
+     
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/pipeline.validation/run_internal_fast.R
+#+end_src
+     
+**** Normal run:
+
+#+BEGIN_SRC bash
+Rscript ./scripts.for.report.ver2/pipeline.validation/run_internal.R
+#+END_SRC
+
+Figure:
+
+- Figure 1D: [[./report.ver2/pipeline.validation/210203-GSE144296.A375/validation.resized.png]]
+
+
+
+*** Supplementary Figure 2A
+    
+Run (must be run after Figure 1D):
+
+#+BEGIN_SRC bash
+Rscript ./scripts.for.report.ver2/pipeline.validation/run_internal_12_variant_distribution.R
+#+END_SRC
+
+Figure:
+
+- Supplementary Figure 2A: [[./report.ver2/pipeline.validation/210203-GSE144296.A375.12.variants/validation.all.unambiguous.variants.percentage.bar.png]]
+
+*** Supplementary Figure 2B
+    
+Run (must be run after Figure 1D):
+
+#+BEGIN_SRC bash
+Rscript ./scripts.for.report.ver2/pipeline.validation/generate_genomic_information_for_edits.R
+#+END_SRC
+
+Figure:
+
+- Supplementary Figure 2B: [[./report.ver2/pipeline.validation/210203-GSE144296.A375.12.variants/all.filtered.RNA.edits.genomic.info.b3.extended.sequence.lines.tsl.plot.png]]
+
+
+** Figure 1E-I and its Supplementary Figures
+
+*** Figure 1E,1F,1G, Supplementary Figure 2,3,4,6,20,21
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - AEI editing info table: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/AEI/AEI.with.ADAR.FPKM.and.sample.info.dt.gz~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+   - All variants (including edits and other non-edit variants) identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.dt.txt.gz~
+   - SnpEff annotation of all variants (including edits and other non-edit variants) : ~result/S51_6__get_snpEff_annotation_subset_of_filtered_result/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.variant.only.snpEff.annotation.dt.txt.gz~
+
+
+**** Figure 1E,1F,1G, Supplementary Figure 3    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/basic.summary/run_internal.R
+ #+END_SRC
+
+ Figure:
+
+ - Figure 1E: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.venn.resized.png]]
+ - Figure 1F: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.A.to.G.ratio.boxplot.resized.png]]
+ - Figure 1G: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.Alu.ratio.boxplot.resized.png]]
+ - Supplementary Figure 3: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.count.per.stage.barplot.png]]
+
+**** Supplementary Figures 10, 11, and 12 (genomic distribution of "normal" and "abnormal" edits)
+
+Run:
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/basic.summary/run_internal_normal_and_others_genomic_difference.R
+#+end_src
+     
+
+Figures:
+
+     - Supplementary Figure 10: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/genomic.distribution/genomic.difference.between.normal.and.abnormal.per.stage.png]]
+     - Supplementary Figure 11: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/genomic.distribution/genomic.difference.between.normal.and.abnormal.per.stage.pvalue.bar.png]]
+     - Supplementary Figure 12: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/genomic.distribution/genomic.difference.between.normal.and.abnormal.per.stage.AN.boxplot.png]]
+
+**** Supplementary Figures 5 and 6 (editing level profile)
+ 
+     Run:
+
+     #+BEGIN_SRC bash
+     Rscript ./scripts.for.report.ver2/basic.summary/run_internal_editing_level_plot.R
+    #+END_SRC
+
+     Figure:
+
+     - Supplementary Figure 5: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.editing.levels.per.stage.histogram.png]]
+     - Supplementary Figure 6: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.editing.levels.per.stage.no.AF.1.histogram.yaxis.asis.png]]
+
+**** Supplementary Figure 7 and Supplementary Figure 8 (AEI profile)
+
+Run:
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/AEI/run_internal.R
+#+end_src
+
+Figures:
+
+     - Supplementary Figure 7: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/AEI/official.AEI.per.stage.boxplot.png]]
+     - Supplementary Figure 8: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/AEI/official.AEI.ADAR.correlation.histogram.png]]
+
+
+**** Supplementary Figure 9 (A-to-G ratios in Alu- and non-Alu-subsets)
+
+Run:
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/basic.summary/run_internal_A-to-G-per-Alu-or-not.R
+#+end_src
+     
+Figures:
+
+     - Supplementary Figure 9: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.A.to.G.ratio.per.Alu.or.not.boxplot.png]]
+     
+*** Figure 1H
+
+ Input:
+ - From [Prerequisites]:
+   - Genome fasta file: ~external/contigs/hg38.fa~
+   - Genome fasta index: ~external/contigs/hg38.fa~
+   - GENCODE transcripts fasta file: ~external/contigs/gencode.v32.transcripts.fa.gz~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - BED file for all identified edits (editing position only): ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.bed~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ snakemake --cores 1 --snakefile ./analysis.v1.part1.smk -prk result/A01_5__plot_motif/210215-sixth-dataset/201221-fifth-phenotype-collection/finished
+ #+END_SRC
+
+ Figure:
+
+ - Figure 1H: [[./result/A01_5__plot_motif/201218-fifth-dataset/201221-fifth-phenotype-collection/temp_result_directory/temp.b3.extended.sequence.lines.tsl.plot.png]]
+
+
+*** Figure 1I
+
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/basic.summary/run_internal_plot_example.R
+ #+END_SRC
+
+ Figure:
+
+ - Figure 1I: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/BLCAP.example.resized.png]]
+
+
+
+
+
+** Figure 2 and its Supplementary Figures
+ 
+
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+   - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+   - Intersected MBS prediction on edited genes: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/all.edited.intersection.of.TargetScan.and.miRanda.compared.with.original.annotated.summary.gene.and.'edit.level.dt.gz~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.dt.txt.gz~
+   - Occurrence of RE-matching edits in each normal sample: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.site.recurrence.comparison.CJ.dt.txt.gz~
+   - Observed edits identified in each normal sample, on valid genes only: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.observed.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+ - From Zenodo archive ~expression.files.tar.gz~
+   - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+ 
+
+*** Figure 2B,2C,2D,2E, and Supplementary Figure 13
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/RE/run_internal.R
+ #+END_SRC
+
+ Figure:
+
+ - Figure 2B: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE/REE.count.per.stage.png]]
+ - Figure 2C: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE/REE.3UTR.ratio.barplot.png]]
+ - Figure 2D: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE/REE.all.edit.types.piechart.png]]
+ - Supplementary Figure 13: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE/3UTR.ratio.barplot.for.observed.edits.png]]
+ - Figure 2E: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE/REE.sankey.png]]
+
+*** Supplementary Figure 22 (correlation between median editing level in the current stage and FPKM of the targeted gene in the next stage)
+
+Run:
+
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/RE.expression/run_internal_using_miRNA_intersection_all_edits.R
+#+end_src
+
+Figure:
+
+    - Supplementary Figure 22: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/AF.median.vs.FPKM.median.scatterplot.overall.png]]
+
+
+
+*** Supplementary Figures 14 and 15 (Fig. 2C-D for later stages)
+
+Run:
+
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/RE/run_internal_later_stages.R
+#+end_src
+
+Figure:
+
+    - Supplementary Figure 15: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.later.stages/REE.all.edit.types.piechart.later.stages.png]]
+    - Supplementary Figure 14: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.later.stages/REE.3UTR.ratio.barplot.later.stages.png]]
+
+
+** Figure 3 and its Supplementary Figures
+
+*** Figure 3B,3C
+
+ Input:
+ - Shipped with the git repository:
+   - Total sample count for each normal stage: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.sample.count.for.normal.stages.dt.csv~
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/RE.gene/run_internal.R
+ #+END_SRC
+
+ Figure:
+
+ - Figure 3B: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.gene/REE.gene.count.per.stage.png]]
+ - Figure 3C: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.gene/REE.gene.sankey.png]]
+
+
+
+*** Figure 3D
+
+ Input:
+ - Shipped with the git repository:
+   - Table for RE-targeted genes: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.gene/RE.targeted.genes.dt.csv.gz~ (also generated by ~./scripts.for.report.ver2/RE.gene/run_internal.R~)
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/RE.gene.GO/run_internal.R
+ #+END_SRC
+
+ Figure:
+
+ - Figure 3D: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.gene/RE.gene.GO.tileplot.png]]
+
+** Figure 4 and its Supplementary Figures
+
+*** Supplementary Data 6,7, Figure 4A,4B
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_disease_lost_RE_check.R
+ #+END_SRC
+
+ Table:
+
+ - Supplementary Data 6: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/disease.or.old.mother.embryo.lost.RE.dt.csv.gz]]
+ - Supplementary Data 7: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/disease.and.old.mother.embryos.lost.RE.all.enrichGO.results.combined.dt.csv.gz]]
+
+ Figure:
+
+ - Figure 4A: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/REE.disease.or.old.mother.embryo.lost.REE.count.barplot.png]]
+ - Figure 4B: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/REE.disease.or.old.mother.embryo.lost.REE.gene.GO.gene.count.ge.4.barplot.png]]
+
+*** bam subsets for IGV visualization in Supplementary IGV data (https://doi.org/10.5281/zenodo.7379397); Supplementary Figures 23, 24, and 25 (sequence coverage of abnormal/elder-mother-lost RE-matching edits in these embryos)
+
+    Running this requires the following bams to be present:
+    #+begin_src shell
+## GSE36552
+
+./result/S15_1__get_sample_RNA_editing_sites_v3/single-100/201104-GSE36552-full124-100/GSM896806/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/95/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/single-100/201104-GSE36552-full124-100/GSM896807/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/95/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/single-100/201104-GSE36552-full124-100/GSM896808/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/95/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+
+## GSE44183
+
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/201217-GSE44183-earlyhumanlong21-90-90/GSM1160118/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/201217-GSE44183-earlyhumanlong21-90-90/GSM1160119/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+
+## GSE71318
+
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-125-125/200919-GSE71318-full48-125-125/GSM1833283/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/120/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-125-125/200919-GSE71318-full48-125-125/GSM1833284/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/120/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-125-125/200919-GSE71318-full48-125-125/GSM1833285/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/120/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-125-125/200919-GSE71318-full48-125-125/GSM1833286/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/120/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-125-125/200919-GSE71318-full48-125-125/GSM1833287/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/120/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+
+## GSE133854 (read length = 90 * 2)
+#### 
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928355/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928356/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928357/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928358/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928359/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+####
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928475/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928476/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+####
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928566/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-90-90/200924-GSE133854-all296-90-90/GSM3928567/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/85/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+
+
+## GSE133854 (read length = 150 * 2)
+####
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928360/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928361/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+####
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928477/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928478/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+####
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928568/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+./result/S15_1__get_sample_RNA_editing_sites_v3/paired-150-150/200924-GSE133854-all296-150-150/GSM3928569/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/145/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/alignment.sorted.withRG.dedup.converted.bq.sorted.without.splicing.junction.SN.recal.bam
+
+    #+end_src
+    In addition, the following input files are needed:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+      - Supplementary Table 2 (see above): ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/disease.or.old.mother.embryo.lost.RE.dt.csv.gz~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+    - From Zenodo archive ~RE.files.tar.gz~:
+      - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+    
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_TTF1_and_107edits_check.R
+    #+end_src
+
+    Bam subsets conform the following path, where ~$SAMPLE~ is the GSM accession above
+    #+begin_src shell
+      ./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/$SAMPLE/temp.recal.chr8.28190741.subset.bam
+    #+end_src
+
+    Figures:
+
+    - Supplementary Figure 23: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check//REE.107edits.sequencing.coverage.in.lost.samples.GSE95477.png]]
+    - Supplementary Figure 24: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check//REE.107edits.sequencing.coverage.in.lost.samples.GSE133854.zygotes.png]]
+    - Supplementary Figure 25: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check//REE.107edits.sequencing.coverage.in.lost.samples.GSE133854.2cells.png]]
+
+
+*** Supplementary Figures 26, 27, and 28 (editing level of abnormal/elder-mother-lost RE-matching edits in normal embryos)
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+      - Supplementary Table 2 (see above): ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/disease.or.old.mother.embryo.lost.RE.dt.csv.gz~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+
+
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_107edits_normal_editing_level_check.R
+    #+end_src
+
+    Figures:   
+    - Supplementary Figure 26 [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/all.107edits.normal.editing.level.GSE95477.boxplot.png]]
+    - Supplementary Figure 27 [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/all.107edits.normal.editing.level.GSE133854.AG.boxplot.png]]
+    - Supplementary Figure 28 [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/all.107edits.normal.editing.level.GSE133854.PG.boxplot.png]]
+
+
+
+*** Supplementary Figure 37
+
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_overall_RE_count_check_2nd.R
+ #+END_SRC
+
+ Figure:
+
+ - Supplementary Figure 37: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/REE.normal.valid.gene.only.REE.count.histogram.three.datasets.png]]
+
+
+*** Supplementary Figure 38b, Supplementary Figure 39, Supplementary Figure 40
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+  
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_GSE95477.R
+ #+END_SRC
+
+ Figure:
+
+ - Supplementary Figure 39: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/REE.count.boxplot.GSE95477.png]]
+ - Supplementary Figure 40: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/GSE95477.oocyte.hclust.png]]
+ - Supplementary Figure 38b: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/REE.count.boxplot.GSE95477.without.GSM2514781.and.GSM2514773.png]]
+
+
+
+
+*** Supplementary Figure 41
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+ - From Zenodo archive ~editome.files.tar.gz~:
+   - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_GSE133854.R
+ #+END_SRC
+
+ Figure:
+
+ - Supplementary Figure 41: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/RE.count.boxplot.GSE133854.png]]
+
+
+
+
+** Figure 5 and its Supplementary Figures
+     
+ 
+*** Figure 5B, Supplementary Figure 29
+
+ Input: 
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - Intersected MBS prediction: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/all.edited.intersection.of.TargetScan.and.miRanda.compared.with.original.annotated.dt.gz~
+ - Prerequisites:
+   - Reference GTF file: ~external/reference.gene.annotation/GENCODE.annotation/32/gencode.annotation.gtf~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - Observed edits identified in each normal sample, on valid genes only: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.observed.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+
+ Run the following:
+
+#+begin_src shell
+Rscript ./scripts.for.report.ver2/miRNA.intersection.all.edits/run_internal_piechart_intersection_all_edits.R
+#+end_src
+ 
+   Figure:
+    - Supplementary Figure 29: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/REE.3UTR.types.piechart.with.no.overlaps.png]]
+    - Figure 5B: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/REE.3UTR.types.piechart.without.no.overlaps.png]]
+
+
+*** Figure 5C,5D, Supplementary Figure 30
+
+Input:
+
+- Shipped with the git repository:
+  - Stage description: ~./manuscript/table_for_processing.xlsx~
+  - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+   - Intersected MBS prediction on edited genes: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/all.edited.intersection.of.TargetScan.and.miRanda.compared.with.original.annotated.summary.gene.and.edit.level.dt.gz~
+- From Zenodo archive ~RE.files.tar.gz~:
+  - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+
+     
+Run:
+
+#+BEGIN_SRC bash
+Rscript ./scripts.for.report.ver2/miRNA.intersection.all.edits/run_internal_MBS_count_intersection_all_edits.R
+#+END_SRC
+
+- Figure 5C: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/REE.MBS.gain.and.loss.count.percentage.barplot.png]]
+- Figure 5D: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/REE.MBS.gain.count.on.MTC.or.nonMTC.maternal.genes.barplot.png]]
+- Supplementary Figure 30: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/REE.MBS.net.change.count.on.MTC.or.nonMTC.maternal.genes.barplot.png]]
+  
+
+
+*** Track file for Supplementary Figure 31; Supplementary Figure 32
+
+
+ Input:
+
+- Shipped with the git repository:
+  - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+  - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+- Prerequisites:
+  - Reference GTF file: ~external/reference.gene.annotation/GENCODE.annotation/32/gencode.annotation.gtf~
+- From Zenodo archive ~microRNA.files.tar.gz~:
+  - TargetScan output for unedited transcripts: ~result/A02_8__get_editing_effect_on_miRNA_binding_sites/step09__concatenate_TargetScan_results_across_all_chromosomes/32/gencode.3utr.all.chromosomes.concatenated.headless.TargetScan.output.gz~.
+  - TargetScan output for edited transcripts: ~result/A02_8__get_editing_effect_on_miRNA_binding_sites/step10__concatenate_edited_TargetScan_results_across_all_chromosomes/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/edited.gencode.3utr.all.chromosomes.but.chrY.concatenated.headless.TargetScan.output.gz~
+- From Zenodo archive ~RE.files.tar.gz~:
+  - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+- From Zenodo archive ~expression.files.tar.gz~
+  - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+
+
+First run the preparation script to get the MBS comparison between unedited and edited, summarized at gene and edit level: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA/edited.ts.human.compared.with.original.annotated.summary.gene.and.edit.level.dt.csv.gz~ (also shipped with the git repository)
+
+#+BEGIN_SRC bash
+Rscript ./scripts.for.report.ver2/miRNA/run_internal_prepare_ts.R
+#+END_SRC
+
+
+ 
+ Then run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/miRNA/run_internal_MBS_case_check.R
+ Rscript ./scripts.for.report.ver2/miRNA/run_internal_MBS_case_check_with_expression.R
+ #+END_SRC
+
+ - Track file: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.case.study/case.study.key.stage.only.backup.bed]]
+
+Use this file to visualize the track on UCSC Genome Browser.
+Note that to visualize the color, one needs to put ~itemRgb="On"~ in the track configuration.
+
+     Figure: 
+     - Supplementary Figure 31: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.case.study/SUV39H2.REs.UCSC.png]]
+     - Supplementary Figure 32: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.case.study//SUV39H2.AF.vs.FPKM.scatterplot.oocyte.GV.png]]
+
+     
+** Supplementary files in Discussion
+ 
+*** Supplementary Figure 33
+
+    Will be automatically generated when generating Supplementary Figure 41.
+
+    Figure:
+    -  Supplementary Figure 33: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/REE.AF.median.vs.FPKM.median.scatterplot.wrt.cluster.and.MBS.annotation.png]]
+
+*** Supplementary Figure 34
+
+Input:
+- Shipped with the git repository:
+  - Stage description: ~./manuscript/table_for_processing.xlsx~
+  - Key genes to check: ~./scripts.for.report.ver2/CCR4-NOT.motif.check/key.genes.to.check.csv~
+  - List of predicted MBSs on edited transcripts: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection/edited.intersection.of.TargetScan.and.miRanda.compared.with.original.annotated.summary.gene.and.edit.level.dt.gz~
+- From Zenodo archive ~RE.files.tar.gz~:
+  - Observed edits identified in each normal sample, on valid genes only: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.observed.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+  - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+
+
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/CCR4-NOT.motif.check/run_internal_key_genes.R
+    #+end_src
+
+    Figure:
+    - Supplementary Figure 34(A): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RNA.degradation.processes/REE.on.EXOSC6.in.normal.early.stages.AF.boxplot.png]]
+    - Track file for Supplementary Figure 34(B) (see the code for how to visualize the track): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RNA.degradation.processes/EXOSC6.RE.bed]]
+    - Supplementary Figure 34(B): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RNA.degradation.processes/EXOSC6.RE.UCSC.png    ]]
+    - Supplementary Figure 34(C): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RNA.degradation.processes/REE.on.CNOT6.in.normal.early.stages.AF.boxplot.png]]
+
+
+*** Supplementary Figure 35
+    
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - Prerequisites:
+      - Reference GTF file: ~external/reference.gene.annotation/GENCODE.annotation/32/gencode.annotation.gtf~
+    - From Zenodo archive ~RE.files.tar.gz~:
+      - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+    - Intermediate files of miRanda prediction:
+      - unedited transcripts for each chromosome: ~./result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step01__get_3UTR_sequences_from_maf_blocks/32/gencode.3utr.$CHROM.fasta~, with ~$CHROM~ being any of chr1, chr2, ..., chr22, chrX
+      - edited transcripts for each chromosome: ~./result/A02_9__get_editing_effect_on_miRNA_binding_sites_for_miRanda/step03__get_edited_3UTR_sequences_from_edited_maf_blocks/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/edited.gencode.3utr.$CHROM.fasta~, with ~$CHROM~ being any of chr1, chr2, ..., chr22, chrX
+      - combination of all transcript 3'-UTRs and edits: ~result/A02_8__get_editing_effect_on_miRNA_binding_sites/step06__compute_edit_relative_position_on_3UTR/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/32/gencode.3utr.and.edit.CJ.dt.csv.gz~
+    
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/CCR4-NOT.motif.check/run_internal_binding_motifs.R
+    #+end_src
+
+    Figure:
+    - Supplementary Figure 35: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.motif/RE.CCR4.NOT.motif.in.normal.early.stages.AF.boxplot.png]]
+
+    
+*** Supplementary Data 8
+
+ Input:
+
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.dt.txt.gz~
+   - Edit recurrence in each GSE133854 sample: ~./result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/GSE133854.all/subset.site.recurrence.comparison.CJ.dt.txt.gz~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/UPD.tables/run_internal_RE.R
+ #+END_SRC
+
+ Table:
+
+ - Supplementary Data 8: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/GSE133854.all/normal.RE.lost.in.UPD.dt.csv.gz]]
+
+
+*** Supplementary Data 9
+
+
+ Input:
+
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - SnpEff annotation for observed edits identified in normal samples, on valid genes only: ~./result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/snpEff.annotation.for.subset.observed.edits.dt.txt.gz~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/recoding.edits/run_internal_recoding.R
+ #+END_SRC
+
+ Table:
+
+ - Supplementary Data 9: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/normal.recoding.edits.dt.csv.gz]]
+
+
+*** Supplementary Data 10
+
+
+ Input:
+ - Shipped with the git repository:
+   - Stage description: ~./manuscript/table_for_processing.xlsx~
+   - Total sample count for each normal stage: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.sample.count.for.normal.stages.dt.csv~
+ - From Zenodo archive ~RE.files.tar.gz~:
+   - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+
+    
+ Run:
+
+ #+BEGIN_SRC bash
+ Rscript ./scripts.for.report.ver2/postimplantation.RE.gene/run_internal.R
+ #+END_SRC
+
+ Table:
+
+ - Supplementary Data 10: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.gene/postimplantation.RE.genes.and.their.RE.dt.csv.gz]]
+
+*** Supplementary Figure 36
+
+    The bam needed for visualization Supplementary Figure is generated during the generation of bam subsets for IGV visualization in Supplementary Data 1.
+
+    The bam needed is: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/GSM3928566/temp.recal.chr9.132375956.subset.bam]]
+    
+    Figure:
+
+    - Supplementary Figure 36: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/lost.edits.coverage.check/GSM3928566/undetected_GSE133854_GSM3928566_PG_NA_NA_NA.bam.IGV.png]]
+
+** Supplementary files in Methods
+
+*** Supplementary Data 1
+
+    - Predefined
+    
+*** Supplementary Data 11
+
+    Input:
+    - Shipped with the git repository:
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/sample.stat/run_internal.R
+    #+end_src
+
+    Table:
+    - Supplementary Data 11: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/sample.stat/all.2071.samples.csv]]
+    
+    
+*** Supplementary Data 2, Supplementary Figure 42
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/basic.summary/run_sample_summary.R
+    #+end_src
+
+    Table:
+    - Supplementary Data 2: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/sample.summary/sample.count.csv]]
+    - Supplementary Figure 42: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/sample.summary/sample.summary.barplot.png]]
+ 
+
+** Supplementary Figure 1, A>G percentages
+
+   Input: this analysis requires the following files of GSM2706237 throughout the identification pipeline
+   1. Under the directory ~result/S15_1__get_sample_RNA_editing_sites_v3/paired-100-100/200902-GSE101571-full-100-100/GSM2706237/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/95/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all~
+      1. ~alignment.bcf~
+   2. Under the directory ~result/S15_1__get_sample_RNA_editing_sites_v3/paired-100-100/200902-GSE101571-full-100-100/GSM2706237/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/95/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none~
+      1. ~alignment.con.vcf~
+      2. ~alignment.ref.vcf~
+      3. ~alignment.rem.vcf~
+      4. ~alignment.Alu.vcf~
+      5. ~alignment.others.vcf~
+      6. ~alignment.others.sim.vcf~
+      7. ~alignment.others.rmSJandHomo.txt~
+      8. ~alignment.others.blat.vcf~
+      9. ~alignment.RepNOTAlu.vcf~
+      10. ~alignment.nonRep.vcf~
+      11. ~alignment.all.real.rich.vcf~
+   3. ~result/S51_3__filter_for_variants_with_enough_read_support/210215-sixth-dataset/merged.long.disjoint.with.population.without.potential.polymorphism.dt.txt.gz~
+   4. ~result/S51_3__filter_for_variants_with_enough_read_support/210215-sixth-dataset/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.dt.txt.gz~
+   5. ~result/S51_4__filter_for_variants_with_enough_sample_support/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.dt.txt.gz~
+   6. All variants (including edits and other non-edit variants) identified in each sample (from ~editome.files.tar.gz~ ): ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.dt.txt.gz~
+   
+   
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/check.A.to.G.percentage.per.filter/check.A.to.G.percentage.per.filter.R 
+    #+end_src
+
+    The numbers will be printed to the standard output.
+   
+
+*** Supplementary Figure 16, Supplementary Figure 17, Supplementary Figure 18, Supplementary Figure 19, Supplementary Figure 20, Supplementary Figure 21 
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - Generated after running the script for generating Supplementary Figure 8 (also shipped with the git repository):
+      - ~report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/median.FPKM.per.gene.and.stage.dt.gz~
+      - ~report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/median.AF.per.gene.and.stage.dt.gz~
+	
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/RE.expression/run_internal_check_FPKM_drop_conditioned_on_REE_existence.R
+    #+end_src
+
+    Figure:
+    - Supplementary Figure 16: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.oocyte.GV.REE.existence.png]]
+    - Supplementary Figure 17: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.oocyte.MII.REE.existence.png]]
+    - Supplementary Figure 18: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.zygote.REE.existence.png]]
+    - Supplementary Figure 19: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.2-cell.REE.existence.png]]
+    - Supplementary Figure 20: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.4-cell.REE.existence.png]]
+    - Supplementary Figure 21: [[report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/developmental.median.FPKM.on.oocyte.GV.heatmap.png]]
+ 
+
+*** Supplementary Figure 4(A,B)
+
+
+    Input:
+    - These two figures need the reports of fastq trimming and the recalibrated bams of each sample.
+	
+    Run (note that `-n` should be removed for really running the snakemake workflow; on the other hand, one could directly run the last Rscript command using the combined summary data shipped with this git repository: ~./result/B92_1__summarize_sample_stat/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/combined.summary.dt.gz~):
+    #+begin_src shell
+    snakemake --snakefile pipeline.v3.part2.check.stat.smk result/B90_1__check_recal_bam_stat/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/finished -prk -n
+
+    snakemake --snakefile pipeline.v3.check.fastq.stat.smk result/B91_1__merge_trim_summary/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/finished -prk -n
+
+    snakemake --snakefile pipeline.v3.part2.check.stat.smk result/B92_1__summarize_sample_stat/210215-sixth-dataset/__merged__/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/finished -prk -n
+
+    Rscript ./scripts.for.report.ver2/basic.summary/run_internal_A-to-G-simple.R
+    #+end_src
+
+    Figure:
+    - Supplementary Figure 4 (A): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/mapping.rate.png]]
+    - Supplementary Figure 4 (B): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/mean.depth.across.whole.genome.png]]
+    - Supplementary Data 3: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/mapping.rates.csv]]
+    - Supplementary Data 4: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/mean.depth.across.whole.genome.csv]]
+
+
+    
+*** Supplementary Figure 4C and Supplementary Data 5
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - All variants (including edits and other non-edit variants) identified in each sample (from ~editome.files.tar.gz~ ): ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.dt.txt.gz~
+	
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/basic.summary/run_internal_A-to-G-simple.R
+    #+end_src
+
+    Figure:
+    - Supplementary Figure 4: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.A.to.G.ratio.across.simple.nucleotide.changes.png]]
+    - Supplementary Data 5: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/all.edits.A.to.G.ratio.across.simple.nucleotide.changes.csv]]
+
+
+
+** First revision, additional files for the comparison with Qiu et al. 2016
+
+*** Additional prerequisites:
+
+**** Tools
+
+***** liftOver
+
+      Run the following to install liftOver:
+      #+begin_src shell
+      wget -O tools/liftOver http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/liftOver
+      chmod u+x tools/liftOver
+      #+end_src
+
+***** TopHat2 v2.1.1
+
+
+***** SOAPnuke
+
+      #+begin_src shell
+      git clone git@github.com:BGI-flexlab/SOAPnuke.git tools/SOAPnuke
+      #+end_src
+
+***** GATK v2.8-1
+
+      We received the GATK v2.8-1 copy from the authors, and added it to the repository ( ~external/Qiu2016.rep/RNA_editing_pipeline/GenomeAnalysisTK-2.8-1-g932cd3a/GenomeAnalysisTK.jar~ ).
+
+***** BWA 0.6.2
+
+      #+begin_src shell
+      wget --no-check-certificate -O ./tools/bwa-0.6.2.tar.bz2 "https://downloads.sourceforge.net/project/bio-bwa/bwa-0.6.2.tar.bz2"
+      tar -C tools/ -xjvf ./tools/bwa-0.6.2.tar.bz2
+      cd ./tools/bwa-0.6.2 && make && cd -
+      #+end_src
+
+***** Perl and Switch module
+
+***** Key third-party softwares: perl scripts and the ~MismatchStat~ and ~MutDet~ variant caller set from the authors of Qiu et al. 2016 (DOI: 10.1186/s12864-016-3115-2)
+
+      Upon the request of the authors of Qiu et al. 2016, we cannot provide their copies in our GitHub repository.
+
+      Please request for them by yourself and put them at the following location:
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/MismatchStat~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/MutDet~
+      - ~scripts/PS80_2__generate_snpdb/build_snpdb.pl~ (this perl script is a subset of the authors' ~RNA_editing.pl~ script; please request for the ~RNA_editing.pl~ for the authors of Qiu et al. 2016 first, and then request for this script from us)
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/binom.reads.fre.end.strand.mism.poly.rep.filter.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/snp.filter.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/extract_reads.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/extract_reads_SE-1.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/bwa.fre.filt.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/bwa.fre.filt_SE-1.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/annovar.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/alu.splicing.filter.pl~
+      - ~external/Qiu2016.rep/RNA_editing_pipeline/bin/stat.pl~
+
+***** ANNOVAR
+
+      The ANNOVAR itself: request it from https://annovar.openbioinformatics.org/ , download it at "./tools/annovar/", and add the following link
+      #+begin_src shell
+      ln -s -r tools/annovar/humandb tools/annovar/humandb_hg19
+      #+end_src
+
+      ~hg38_refGene~
+      #+begin_src shell
+      perl ./tools/annovar/annotate_variation.pl -downdb -buildver hg38 -webfrom annovar refGene tools/annovar/humandb_hg38
+      ## If it fails due to e.g. network issue, run the following as suggested
+      mkdir -p tools/annovar/humandb_hg38
+      wget -P tools/annovar/humandb_hg38/ http://www.openbioinformatics.org/annovar/download/hg38_refGene.txt.gz
+      wget -P tools/annovar/humandb_hg38/ http://www.openbioinformatics.org/annovar/download/hg38_refGeneMrna.fa.gz
+      wget -P tools/annovar/humandb_hg38/ http://www.openbioinformatics.org/annovar/download/hg38_refGeneVersion.txt.gz
+      gunzip ./tools/annovar/humandb_hg38/hg38_refGene.txt.gz ./tools/annovar/humandb_hg38/hg38_refGeneMrna.fa.gz ./tools/annovar/humandb_hg38/hg38_refGeneVersion.txt.gz
+      #+end_src
+
+**** Datasets     
+
+***** ~hg38.fa~ + ~gencode.v32.transcripts.fa~, concatenated
+
+      #+begin_src shell
+      cat external/contigs/hg38.fa external/contigs/gencode.v32.transcripts.fa > external/contigs/hg38.fa.and.gencode.v32.transcripts.fa
+      #+end_src
+
+***** GoNL (human populations of Dutch) phase 2
+
+      Download all vcf files from http://molgenis26.gcc.rug.nl/downloads/gonl_public/releases/release2_noContam_noChildren_with_AN_AC_stripped.tgz and link them in the ~external/outer_vcf_for_previous/GoNL.phase2/~ directory in the following way:
+
+      #+begin_src shell
+      for tempchr in `seq -f 'chr%g' 1 22` chrX
+      do
+	echo `date` Processing GoNL $tempchr liftover to hg38 ...
+	mkdir -p external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr
+	cat /path/to/GoNL_release2_noContam_noChildren_with_AN_AC_stripped/gonl.${tempchr}.release2.parentsOnlyWithAlleleCounts.stripped.vcf | awk '{if ($1 !~ /^#/) {print "chr"$0} else {print $0}}' >  external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.hg19.VCF
+	time picard -Xmx20G LiftoverVcf I=external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.hg19.VCF CHAIN=tools/hg19ToHg38.over.chain O=external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.vcf REJECT=external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.hg19tohg38.unmapped.vcf R=external/contigs/hg38.fa
+	ln -s -r external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.vcf external/outer_vcf_for_previous/GoNL.phase2.hg38/$tempchr/outer.VCF
+      done
+      #+end_src
+
+
+
+
+   
+***** hg38 simple repeat
+
+      Use Table Browser from UCSC Genome Browser (with the following settings) to retrieve this file and rename it as ~./external/UCSC.Table.Browser/hg38_simpleRepeat.reg.bed~ :
+      - clade: Mammal
+      - genome: Human
+      - assembly: Dec. 2013 (GRCh38/hg38)
+      - group: Repeats
+      - track: Simple Repeats
+      - table: simpleRepeat
+      - region: genome
+      - do not set any filters/intersection/correlation
+      - output format: BED
+
+***** hg38 Alu bed
+
+      Use Table Browser from UCSC Genome Browser (with the following settings) to retrieve this file and rename it as ~./external/UCSC.Table.Browser/hg38_alu.bed~ :
+      - clade: Mammal
+      - genome: Human
+      - assembly: Dec. 2013 (GRCh38/hg38)
+      - group: Repeats
+      - track: RepeatMasker
+      - table: rmsk
+      - region: genome
+      - filters/intersection/correlation:
+	- set filter with : repFamily does match Alu
+      - output format: BED
+
+
+*** Additional Figure 11
+
+    Input:
+    - Shipped with the git repository:
+      - The Supplementary Table 1 provided by Qiu et al. 2016: ~./external/papers/10.1186/s12864-016-3115-2/12864_2016_3115_MOESM2_ESM.xlsx~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+    
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/comparison.with.previous.identification/run_direct_comparison.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 11: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/direct.comparison.with.Qiu2016.png]]
+    
+
+*** Additional Figure 13,14,15,16,17,18,19
+
+**** Reproducing the results of Qiu et al. 2016:
+
+     We need to run the following pipeline to reproduce the results of Qiu et al. 2016:
+
+***** Get recalibrated bams
+
+      #+begin_src shell
+
+	##GSE36552
+	snakemake --jobs 1 -prk --snakefile ./previous.pipeline.1.smk  result/PS15_1__get_sample_RNA_editing_sites_v3/single-100/201104-GSE36552-full124-100/{GSM922146,GSM922147,GSM922148,GSM922149,GSM922150,GSM922151,GSM922152,GSM922153,GSM922154,GSM922155,GSM922156,GSM922157,GSM922158,GSM922159,GSM922160,GSM922161,GSM922162,GSM922163,GSM922164,GSM922165,GSM922166,GSM922167,GSM922168,GSM922169,GSM922170,GSM922171,GSM922172,GSM922173,GSM922174,GSM922175,GSM922176,GSM922177,GSM922178,GSM922179,GSM922180,GSM922181,GSM922182,GSM922183,GSM922184,GSM922185,GSM922186,GSM922187,GSM922188,GSM922189,GSM922190,GSM922191,GSM922192,GSM922193,GSM896803,GSM896804,GSM896805,GSM896806,GSM896807,GSM896808,GSM896809,GSM896810,GSM896811,GSM896812,GSM896813,GSM896814}/__merged__/trim-15bp-off-3prime-and-filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/finished.step02__call_variants____part05__recalibrate_base_quality --use-conda --nolock -n
+
+	##GSE44183
+	snakemake --jobs 1 -prk --snakefile ./previous.pipeline.1.smk  result/PS15_1__get_sample_RNA_editing_sites_v3/paired-90-90/201217-GSE44183-earlyhumanlong21-90-90/{GSM1160112,GSM1160113,GSM1160114,GSM1160115,GSM1160116,GSM1160117,GSM1160118,GSM1160119,GSM1160120,GSM1160121,GSM1160122,GSM1160123,GSM1160124,GSM1160125,GSM1160126,GSM1160127,GSM1160128,GSM1160129,GSM1160138,GSM1160139,GSM1160140}/__merged__/filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/finished.step02__call_variants____part05__recalibrate_base_quality --use-conda --nolock -n
+      #+end_src
+    
+***** Build snp.temp.txt (hg38) from dbSNP 151 + 1000Genomes Phase 3 hg38 + GoNL hg38
+
+      #+begin_src shell
+	snakemake --jobs 1 -prk --snakefile ./previous.pipeline.2.using.original.codes.smk result/PS80_2__generate_snpdb/dbSNP151.and.1000Genomeshg38.and.GoNLliftoverhg38/finished --nolock -n
+      #+end_src
+
+***** Get number of uniquely mapped bases per sample
+
+      #+begin_src shell
+	snakemake --jobs 1 -prk --snakefile ./previous.pipeline.2.smk  result/PS31_1__get_number_of_uniquely_mapped_bases/single-100/201104-GSE36552-full124-100/{GSM922146,GSM922147,GSM922148,GSM922149,GSM922150,GSM922151,GSM922152,GSM922153,GSM922154,GSM922155,GSM922156,GSM922157,GSM922158,GSM922159,GSM922160,GSM922161,GSM922162,GSM922163,GSM922164,GSM922165,GSM922166,GSM922167,GSM922168,GSM922169,GSM922170,GSM922171,GSM922172,GSM922173,GSM922174,GSM922175,GSM922176,GSM922177,GSM922178,GSM922179,GSM922180,GSM922181,GSM922182,GSM922183,GSM922184,GSM922185,GSM922186,GSM922187,GSM922188,GSM922189,GSM922190,GSM922191,GSM922192,GSM922193,GSM896803,GSM896804,GSM896805,GSM896806,GSM896807,GSM896808,GSM896809,GSM896810,GSM896811,GSM896812,GSM896813,GSM896814}/__merged__/trim-15bp-off-3prime-and-filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/finished result/PS31_1__get_number_of_uniquely_mapped_bases/paired-90-90/201217-GSE44183-earlyhumanlong21-90-90/{GSM1160112,GSM1160113,GSM1160114,GSM1160115,GSM1160116,GSM1160117,GSM1160118,GSM1160119,GSM1160120,GSM1160121,GSM1160122,GSM1160123,GSM1160124,GSM1160125,GSM1160126,GSM1160127,GSM1160128,GSM1160129,GSM1160138,GSM1160139,GSM1160140}/__merged__/filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/finished -n
+      #+end_src
+
+***** Build hg38.fa + GENCODE v32 transcripts fa bwa index
+
+      #+begin_src shell
+      snakemake --jobs 1 -prk --snakefile ./previous.pipeline.2.using.original.codes.smk result/PS80_1__index_contig_with_bwa/hg38.fa.and.gencode.v32.transcripts.fa/bwa/bwa-index-default/finished --nolock -n
+      #+end_src
+
+***** The rest steps
+
+      #+begin_src shell
+	## GSE36552
+	snakemake --jobs 1 -prk --snakefile ./previous.pipeline.2.using.original.codes.smk  result/PS81_2__Qiu2016_filter_variants/single-100/201104-GSE36552-full124-100/{GSM922146,GSM922147,GSM922148,GSM922149,GSM922150,GSM922151,GSM922152,GSM922153,GSM922154,GSM922155,GSM922156,GSM922157,GSM922158,GSM922159,GSM922160,GSM922161,GSM922162,GSM922163,GSM922164,GSM922165,GSM922166,GSM922167,GSM922168,GSM922169,GSM922170,GSM922171,GSM922172,GSM922173,GSM922174,GSM922175,GSM922176,GSM922177,GSM922178,GSM922179,GSM922180,GSM922181,GSM922182,GSM922183,GSM922184,GSM922185,GSM922186,GSM922187,GSM922188,GSM922189,GSM922190,GSM922191,GSM922192,GSM922193,GSM896803,GSM896804,GSM896805,GSM896806,GSM896807,GSM896808,GSM896809,GSM896810,GSM896811,GSM896812,GSM896813,GSM896814}/__merged__/trim-15bp-off-3prime-and-filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/dbSNP151.and.1000Genomeshg38.and.GoNLliftoverhg38/finished.part3__sort_and_annovar_and_splicing_and_basicstat --nolock -n
+
+	## GSE44183
+	snakemake --jobs 100 --cluster 'sbatch -p cn-long -N 1 -A gaog_g1 --qos=gaogcnl -c 2 ' -prk --snakefile ./previous.pipeline.2.using.original.codes.smk  result/PS81_2__Qiu2016_filter_variants/paired-90-90/201217-GSE44183-earlyhumanlong21-90-90/{GSM1160112,GSM1160113,GSM1160114,GSM1160115,GSM1160116,GSM1160117,GSM1160118,GSM1160119,GSM1160120,GSM1160121,GSM1160122,GSM1160123,GSM1160124,GSM1160125,GSM1160126,GSM1160127,GSM1160128,GSM1160129,GSM1160138,GSM1160139,GSM1160140}/__merged__/filter-by-soapnuke/hg38.fa/32/tophat2-index/tophat2-index-default/tophat2/tophat2-default/GATK-2.8-1/GATK-2.8-1-default/151/common_all/dbSNP151.and.1000Genomeshg38.and.GoNLliftoverhg38/finished.part3__sort_and_annovar_and_splicing_and_basicstat --nolock -n
+      #+end_src
+
+**** Produce the figures:
+
+     Additional inputs:
+     - From Zenodo archive ~editome.files.tar.gz~:
+       - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+     - Intermediate files during the generation of our editome:
+       - List of identified variants disjoint with population variants: ~result/S51_2__filter_against_population_variants/210215-sixth-dataset/merged.variant.only.disjoint.with.population.variants.vcf.gz~
+       - SnpEff annotation of all raw variants identified: ~result/S18_1__combine_annotations/201218-fifth-dataset/__merged__/base-quality-no-smaller-than-25/hg38.fa/32/bwa-index-10.1038_nmeth.2330/bwa-aln-samsepe/none/GATK-3.6.0/none/151/common_all/complex_filter_1/none/snpEff/basic/10000000/combined.merged.variant.only.snpEff.event.summary.dt.txt.gz~
+       - Sample occurrence of variants identified: ~result/S51_4__filter_for_variants_with_enough_sample_support/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.dt.txt.gz~
+
+     
+     Run:
+     #+begin_src shell
+       Rscript ./scripts.for.report.ver2/comparison.with.previous.identification/run_replicated_results_hg38.R
+     #+end_src
+
+     Figure:
+     - Additional Figure 13: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016/number.of.uniquely.mapped.bases.png]]
+     - Additional Figure 14(A): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//count.of.edits.identified.raw.histogram.png]]
+     - Additional Figure 14(B): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//comparison.between.reimplementation.and.Qiu2016.reported.png]]
+     - Additional Figure 15(A): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//count.of.edits.identified.refiltered.histogram.png]]
+     - Additional Figure 15(B): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//comparison.between.reimplementation.refiltered.and.Qiu2016.reported.png]]
+     - Additional Figure 16(A): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//count.of.edits.identified.finalset.histogram.png]]
+     - Additional Figure 16(B): [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//comparison.between.reimplementation.finalset.and.Qiu2016.reported.png]]
+     - Additional Figure 17: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016/overlap.of.edits.identified.between.finalset.and.ours.histogram.png]]
+     - Additional Figure 18: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//false.negative.explanation.png]]
+     - Additional Figure 19: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/hg38.based.comparison.with.Qiu2016//false.positive.explanation.png]]
+
+** First revision, additional files for comments other than the comparison with Qiu et al. 2016)
+
+*** Additional Figure 5, Additional Figure 6
+
+    Input:
+
+    - Shipped with the git repository:
+      - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+    - From Zenodo archive ~RE.files.tar.gz~:
+      - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+    - From Zenodo archive ~expression.files.tar.gz~
+      - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+
+    
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/phenotypic.check/run_internal_GSE95477_with_expression.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 5: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/GSE95477.RE.matching.edits.and.expression/spearman.cor.for.each.cluster.boxplot.within.sample.YAO.FPKM.thresholded.png]]
+    - Additional Figure 6: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/GSE95477.RE.matching.edits.and.expression/spearman.cor.for.each.cluster.boxplot.YAO.png     ]]
+
+
+*** Additional Figure 8, Additional Figure 9
+
+    Input:
+    - Shipped with the git repository:
+      - maternal gene expression and annotation: ~result/S42_1__annotate_embryonic_genes/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/201221-fifth-phenotype-collection/combined.gexpr.FPKM.pc.only.melt.with.phenotype.normal.sample.only.median.annotated.dt.txt.gz~
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+      - Intersected MBS prediction on edited genes: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/all.edited.intersection.of.TargetScan.and.miRanda.compared.with.original.annotated.summary.gene.and.edit.level.dt.gz~
+    - From Zenodo archive ~RE.files.tar.gz~:
+      - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+    - From Zenodo archive ~expression.files.tar.gz~
+      - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/RE.expression/run_internal_using_miRNA_intersection_all_edits.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 8: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/REE.transition.type.histogram.gene.median.FPKM.drop.only.wrt.cluster.png]]
+    - Additional Figure 9: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.using.miRNA.intersection.all.edits/diff.AF.median.boxplot.gene.median.FPKM.drop.only.wrt.cluster.png]]
+
+
+*** Additional Figure 20, Additional Figure 21
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+      - All variants (including edits and other non-edit variants) identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.with.event.summary.dt.txt.gz~
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/basic.summary/run_internal_F2A_examination.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 20: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/F2A.examination/edit.counts.vs.sequencing.depth.scatterplot.png]]
+    - Additional Figure 21: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/F2A.examination/edit.overlap.vs.sequencing.depth.distance.scatterplot.png]]
+
+      
+*** Additional Figure 22
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/basic.summary/run_internal_F2A_dimensional_reduction.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 22: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/F2A.dimensional.reduction/sample.DR.scatterplot.umap.png]]
+
+*** Additional Figure 31
+
+    Input:
+    - Shipped with the git repository:
+      - Phenotype table at the GSM level: ~result/S21_1__merge_phenotype_tables/201221-fifth-phenotype-collection/phenotype.output.at.gsm.level.dt.txt~
+    - From Zenodo archive ~RE.files.tar.gz~:
+      - REs identified in each normal sample, on valid genes only, with snpEff annotation: ~result/A02_4__check_fine_recurrence_profile_for_a_subset_of_samples/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/subset.recurrent.edits.only.with.snpEff.annotation.on.valid.genes.only.dt.txt.gz~
+    - From Zenodo archive ~expression.files.tar.gz~
+      - Gene expression table across all samples: ~result/BS06_1__get_expression_level/210215-sixth-dataset/auto-detect-and-cut-adapter-by-trim-galore-and-select-reads-with-base-quality-no-smaller-than-25-by-fastp/hg38.fa/32/STAR-expression/__sample_dependent__/STAR-expression/default/stringtie/none/combined.gexpr.FPKM.matrix.txt~
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/RE.expression/run_internal_later_stages.R
+    #+end_src
+
+    Figure:
+    - Additional Figure 31: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.and.expression.later.stages/AF.median.vs.FPKM.median.scatterplot.overall.png]]
+
+*** Additional Figure 37
+
+    Input:
+    - Intermediate files of MBS prediction:
+      - match between TargetScan and miRanda predictions on unedited transcripts: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/original.TargetScan.and.miRanda.match.dt.gz~
+
+    
+    Run:
+    #+begin_src shell
+      Rscript ./scripts.for.report.ver2/miRNA.intersection.all.edits/run_internal_plot_overlap.R
+    #+end_src
+
+    Figure:
+    - Additional Figure 37: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/all.normal.samples/RE.miRNA.intersection.all.edits/original.TargetScan.and.miRanda.venn.png]]
+
+
+
+
+
+
+
+
+
+** Second revision, additional files
+   
+*** Additional Figure 5 (IGV track plot comparison between Qiu et al. and ours)
+
+    Input:
+    - Comparison table between Qiu et al. released edits and ours (generated by Additional Figure 11 of First revision; also shipped with the repository) : [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/qiu2016.bed.merged.with.ours.dt.gz]]
+
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/comparison.with.previous.identification/generate_bed_for_IGV_plotting.R
+    #+end_src
+
+    Feed the following generated bed files to IGV to visualize the result (window region: chr9:132,375,916-132,375,996)
+    - Qiu et al.: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/case.TTF1.qiu2016.bed~
+    - Ours: ~./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/case.TTF1.ours.bed~
+    
+*** Additional Figure 8 (editing level distribution of zebrafish edits)
+
+    Input:
+    - Shipped with the git repository:
+      - The Supplementary Table 2 provided by Buchumenski et al. 2021: ~./external/zebrafish.embryo/SuppTable2.xlsx~
+    
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/zebrafish.embryo.check/zebrafish.embryo.check.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 7: [[report.ver2/zebrafish.embryo.check/149.coding.edits.editing.level.histogram.png]]
+    
+
+*** Additional Figure 11, 12 (normal-abnormal overlaps, and ten different overlap check of random split of each group)
+
+    Input:
+    - Shipped with the git repository:
+      - Stage description: ~./manuscript/table_for_processing.xlsx~
+    - From Zenodo archive ~editome.files.tar.gz~:
+      - All edits identified in each sample: ~result/S51_5__filter_for_A_to_G_sites/210215-sixth-dataset/201221-fifth-phenotype-collection/merged.long.disjoint.with.population.without.potential.polymorphism.with.enough.read.support.with.phenotype.sequenced.samples.only.with.enough.sample.support.A.to.G.only.dt.txt.gz~
+    
+    Run:
+    #+begin_src shell
+    Rscript ./scripts.for.report.ver2/basic.summary/run_internal_F2A_examination_sanity_check.R
+    #+end_src
+    
+    Figure:
+    - Additional Figure 11: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/venn-between-normal-and-abnormal.png]]
+    - Additional Figure 12: [[./report.ver2/210215-sixth-dataset/201221-fifth-phenotype-collection/total.samples/subset.overlap.sanity.check.png]]
+    
